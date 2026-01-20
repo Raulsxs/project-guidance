@@ -8,7 +8,7 @@ import GenerateContentModal from "@/components/dashboard/GenerateContentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { Search, RefreshCw, Loader2 } from "lucide-react";
+import { Search, RefreshCw, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface DbTrend {
@@ -50,6 +50,7 @@ const Dashboard = () => {
   const [trends, setTrends] = useState<TrendCardData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isScraping, setIsScraping] = useState(false);
 
   const fetchTrends = async () => {
     try {
@@ -91,6 +92,45 @@ const Dashboard = () => {
     setIsRefreshing(true);
     fetchTrends();
     toast.success("Tendências atualizadas!");
+  };
+
+  const handleScrapeTrends = async () => {
+    setIsScraping(true);
+    toast.info("Buscando novas tendências...", {
+      description: "Isso pode levar alguns segundos.",
+    });
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scrape-trends`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Erro ao buscar tendências");
+      }
+
+      toast.success(`${data.inserted} novas tendências encontradas!`, {
+        description: `Total analisado: ${data.found} fontes.`,
+      });
+
+      // Refresh the trends list
+      fetchTrends();
+    } catch (error) {
+      console.error("Scraping error:", error);
+      toast.error("Erro ao buscar tendências", {
+        description: error instanceof Error ? error.message : "Tente novamente.",
+      });
+    } finally {
+      setIsScraping(false);
+    }
   };
 
   // Filter trends based on search and filters
@@ -236,15 +276,30 @@ const Dashboard = () => {
               Monitore as principais notícias e gere conteúdo para suas redes sociais
             </p>
           </div>
-          <Button 
-            variant="outline" 
-            className="gap-2 w-fit"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-            Atualizar Tendências
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              variant="default" 
+              className="gap-2"
+              onClick={handleScrapeTrends}
+              disabled={isScraping}
+            >
+              {isScraping ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              Buscar Novas Tendências
+            </Button>
+            <Button 
+              variant="outline" 
+              className="gap-2"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              Atualizar
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
