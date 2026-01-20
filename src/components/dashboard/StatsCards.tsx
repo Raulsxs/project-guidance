@@ -12,46 +12,50 @@ interface Stat {
   iconBg: string;
 }
 
-const stats: Stat[] = [
-  {
-    label: "Tendências Ativas",
-    value: 24,
-    change: "+5 hoje",
-    changeType: "positive",
-    icon: TrendingUp,
-    iconColor: "text-primary",
-    iconBg: "bg-primary/10",
-  },
-  {
-    label: "Conteúdos Gerados",
-    value: 156,
-    change: "+12 esta semana",
-    changeType: "positive",
-    icon: FileText,
-    iconColor: "text-accent",
-    iconBg: "bg-accent/10",
-  },
-  {
-    label: "Aprovados",
-    value: 142,
-    change: "91% taxa",
-    changeType: "positive",
-    icon: CheckCircle,
-    iconColor: "text-success",
-    iconBg: "bg-success/10",
-  },
-  {
-    label: "Pendentes",
-    value: 8,
-    change: "Revisar hoje",
-    changeType: "neutral",
-    icon: Clock,
-    iconColor: "text-warning",
-    iconBg: "bg-warning/10",
-  },
-];
+interface StatsCardsProps {
+  trendsCount?: number;
+}
 
-const StatsCards = () => {
+const StatsCards = ({ trendsCount = 0 }: StatsCardsProps) => {
+  const stats: Stat[] = [
+    {
+      label: "Tendências Ativas",
+      value: trendsCount,
+      change: "Atualizadas hoje",
+      changeType: "positive",
+      icon: TrendingUp,
+      iconColor: "text-primary",
+      iconBg: "bg-primary/10",
+    },
+    {
+      label: "Conteúdos Gerados",
+      value: 0,
+      change: "Esta semana",
+      changeType: "neutral",
+      icon: FileText,
+      iconColor: "text-accent",
+      iconBg: "bg-accent/10",
+    },
+    {
+      label: "Prontos para Publicar",
+      value: 0,
+      change: "Aguardando revisão",
+      changeType: "positive",
+      icon: CheckCircle,
+      iconColor: "text-success",
+      iconBg: "bg-success/10",
+    },
+    {
+      label: "Rascunhos",
+      value: 0,
+      change: "Continuar editando",
+      changeType: "neutral",
+      icon: Clock,
+      iconColor: "text-warning",
+      iconBg: "bg-warning/10",
+    },
+  ];
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {stats.map((stat, index) => (

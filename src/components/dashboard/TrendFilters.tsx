@@ -16,26 +16,16 @@ export interface FilterState {
   dateRange: "24h" | "7d" | "30d" | "all";
 }
 
+interface TrendData {
+  source: string;
+  theme: string;
+}
+
 interface TrendFiltersProps {
   filters: FilterState;
   onFilterChange: (filters: FilterState) => void;
+  trends?: TrendData[];
 }
-
-const sources = [
-  "HealthExec",
-  "EVToday",
-  "DoctorCreator",
-  "SaúdeDigitalNews",
-  "RadiologyBusiness",
-];
-
-const themes = [
-  "IA em Saúde",
-  "Inovação",
-  "Gestão Hospitalar",
-  "Radiologia",
-  "Dispositivos Médicos",
-];
 
 const dateRanges = [
   { value: "24h", label: "Últimas 24h" },
@@ -44,7 +34,11 @@ const dateRanges = [
   { value: "all", label: "Todos" },
 ] as const;
 
-const TrendFilters = ({ filters, onFilterChange }: TrendFiltersProps) => {
+const TrendFilters = ({ filters, onFilterChange, trends = [] }: TrendFiltersProps) => {
+  // Extract unique sources and themes from trends data
+  const sources = [...new Set(trends.map(t => t.source))];
+  const themes = [...new Set(trends.map(t => t.theme))];
+
   const activeFiltersCount = 
     filters.sources.length + 
     filters.themes.length + 
