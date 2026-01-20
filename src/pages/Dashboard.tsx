@@ -1,15 +1,40 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import TrendCard, { Trend } from "@/components/dashboard/TrendCard";
+import TrendCard from "@/components/dashboard/TrendCard";
 import TrendFilters, { FilterState } from "@/components/dashboard/TrendFilters";
 import StatsCards from "@/components/dashboard/StatsCards";
 import GenerateContentModal from "@/components/dashboard/GenerateContentModal";
-import { mockTrends } from "@/data/mockTrends";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { Search, RefreshCw } from "lucide-react";
+import { Search, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+interface DbTrend {
+  id: string;
+  title: string;
+  description: string | null;
+  source: string;
+  source_url: string | null;
+  theme: string;
+  relevance_score: number | null;
+  keywords: string[] | null;
+  created_at: string;
+}
+
+interface TrendCardData {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  sourceUrl: string;
+  theme: string;
+  publishedAt: string;
+  score: number;
+  keywords: string[];
+  description: string;
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -19,12 +44,57 @@ const Dashboard = () => {
     themes: [],
     dateRange: "all",
   });
-  const [selectedTrend, setSelectedTrend] = useState<Trend | null>(null);
+  const [selectedTrend, setSelectedTrend] = useState<TrendCardData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [trends, setTrends] = useState<TrendCardData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchTrends = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("trends")
+        .select("*")
+        .order("relevance_score", { ascending: false });
+
+      if (error) throw error;
+
+      const mappedTrends: TrendCardData[] = (data as DbTrend[]).map((trend) => ({
+        id: trend.id,
+        title: trend.title,
+        summary: trend.description || "",
+        source: trend.source,
+        sourceUrl: trend.source_url || "",
+        theme: trend.theme,
+        publishedAt: trend.created_at,
+        score: (trend.relevance_score || 50) / 10,
+        keywords: trend.keywords || [],
+        description: trend.description || "",
+      }));
+
+      setTrends(mappedTrends);
+    } catch (error) {
+      console.error("Error fetching trends:", error);
+      toast.error("Erro ao carregar tendências");
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrends();
+  }, []);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    fetchTrends();
+    toast.success("Tendências atualizadas!");
+  };
 
   // Filter trends based on search and filters
-  const filteredTrends = mockTrends.filter((trend) => {
+  const filteredTrends = trends.filter((trend) => {
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -68,31 +138,90 @@ const Dashboard = () => {
     return true;
   });
 
-  const handleGenerateContent = (trend: Trend) => {
+  const handleGenerateContent = (trend: TrendCardData) => {
     setSelectedTrend(trend);
     setIsModalOpen(true);
   };
 
-  const handleViewDetails = (trend: Trend) => {
-    navigate(`/trend/${trend.id}`);
+  const handleViewDetails = (trend: TrendCardData) => {
+    if (trend.sourceUrl) {
+      window.open(trend.sourceUrl, "_blank");
+    }
   };
 
   const handleGenerate = async (trendId: string, format: string) => {
+    if (!selectedTrend) return;
+    
     setIsGenerating(true);
     
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    
-    setIsGenerating(false);
-    setIsModalOpen(false);
-    
-    toast.success("Conteúdo gerado com sucesso!", {
-      description: "Você será redirecionado para o preview.",
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-content", {
+        body: {
+          trend: {
+            title: selectedTrend.title,
+            description: selectedTrend.description,
+            theme: selectedTrend.theme,
+            keywords: selectedTrend.keywords,
+          },
+          contentType: format,
+        },
+      });
 
-    // Navigate to preview page
-    navigate(`/preview/${trendId}?format=${format}`);
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || "Erro ao gerar conteúdo");
+      }
+
+      // Save generated content to database
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) {
+        throw new Error("Usuário não autenticado");
+      }
+
+      const { data: savedContent, error: saveError } = await supabase
+        .from("generated_contents")
+        .insert({
+          user_id: session.session.user.id,
+          trend_id: trendId,
+          content_type: format,
+          title: data.content.title,
+          caption: data.content.caption,
+          hashtags: data.content.hashtags,
+          slides: data.content.slides,
+          status: "draft",
+        })
+        .select()
+        .single();
+
+      if (saveError) throw saveError;
+
+      toast.success("Conteúdo gerado com sucesso!", {
+        description: "Você será redirecionado para o preview.",
+      });
+
+      // Navigate to content preview
+      navigate(`/content/${savedContent.id}`);
+    } catch (error) {
+      console.error("Error generating content:", error);
+      toast.error("Erro ao gerar conteúdo", {
+        description: error instanceof Error ? error.message : "Tente novamente mais tarde",
+      });
+    } finally {
+      setIsGenerating(false);
+      setIsModalOpen(false);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -107,14 +236,19 @@ const Dashboard = () => {
               Monitore as principais notícias e gere conteúdo para suas redes sociais
             </p>
           </div>
-          <Button variant="outline" className="gap-2 w-fit">
-            <RefreshCw className="w-4 h-4" />
+          <Button 
+            variant="outline" 
+            className="gap-2 w-fit"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
             Atualizar Tendências
           </Button>
         </div>
 
         {/* Stats */}
-        <StatsCards />
+        <StatsCards trendsCount={trends.length} />
 
         {/* Search & Filters */}
         <div className="flex flex-col lg:flex-row gap-4">
@@ -127,7 +261,11 @@ const Dashboard = () => {
               className="pl-10"
             />
           </div>
-          <TrendFilters filters={filters} onFilterChange={setFilters} />
+          <TrendFilters 
+            filters={filters} 
+            onFilterChange={setFilters}
+            trends={trends}
+          />
         </div>
 
         {/* Results Count */}
