@@ -14,7 +14,166 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      generated_contents: {
+        Row: {
+          caption: string | null
+          content_type: string
+          created_at: string
+          hashtags: string[] | null
+          id: string
+          image_urls: string[] | null
+          slides: Json | null
+          status: string | null
+          title: string
+          trend_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          caption?: string | null
+          content_type: string
+          created_at?: string
+          hashtags?: string[] | null
+          id?: string
+          image_urls?: string[] | null
+          slides?: Json | null
+          status?: string | null
+          title: string
+          trend_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          caption?: string | null
+          content_type?: string
+          created_at?: string
+          hashtags?: string[] | null
+          id?: string
+          image_urls?: string[] | null
+          slides?: Json | null
+          status?: string | null
+          title?: string
+          trend_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_contents_trend_id_fkey"
+            columns: ["trend_id"]
+            isOneToOne: false
+            referencedRelation: "trends"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          company_name: string | null
+          created_at: string
+          full_name: string | null
+          id: string
+          instagram_handle: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          company_name?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          instagram_handle?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          company_name?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          instagram_handle?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      saved_trends: {
+        Row: {
+          id: string
+          saved_at: string
+          trend_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          saved_at?: string
+          trend_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          saved_at?: string
+          trend_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saved_trends_trend_id_fkey"
+            columns: ["trend_id"]
+            isOneToOne: false
+            referencedRelation: "trends"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trends: {
+        Row: {
+          created_at: string
+          description: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          keywords: string[] | null
+          relevance_score: number | null
+          scraped_at: string | null
+          source: string
+          source_url: string | null
+          theme: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          keywords?: string[] | null
+          relevance_score?: number | null
+          scraped_at?: string | null
+          source: string
+          source_url?: string | null
+          theme: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          keywords?: string[] | null
+          relevance_score?: number | null
+          scraped_at?: string | null
+          source?: string
+          source_url?: string | null
+          theme?: string
+          title?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
