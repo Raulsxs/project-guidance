@@ -2,12 +2,12 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -113,6 +113,9 @@ const ImagePicker = ({ open, onClose, onSelectImage }: ImagePickerProps) => {
             <Image className="w-5 h-5 text-primary" />
             Banco de Imagens
           </DialogTitle>
+          <DialogDescription>
+            Selecione uma imagem profissional para seu conteúdo
+          </DialogDescription>
         </DialogHeader>
 
         <div className="p-4 space-y-4">
@@ -135,20 +138,20 @@ const ImagePicker = ({ open, onClose, onSelectImage }: ImagePickerProps) => {
           {/* Categories */}
           <div className="flex flex-wrap gap-2">
             {categories.map((cat) => (
-              <Badge
+              <button
                 key={cat.id}
-                variant={selectedCategory === cat.id ? "default" : "outline"}
+                type="button"
                 className={cn(
-                  "cursor-pointer transition-all px-3 py-1.5",
+                  "inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition-all cursor-pointer",
                   selectedCategory === cat.id
-                    ? "bg-primary hover:bg-primary/90"
-                    : "hover:bg-primary/10"
+                    ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
+                    : "border-border bg-background hover:bg-primary/10"
                 )}
                 onClick={() => handleCategoryClick(cat.id)}
               >
                 <span className="mr-1.5">{cat.emoji}</span>
                 {cat.label}
-              </Badge>
+              </button>
             ))}
           </div>
         </div>

@@ -52,7 +52,7 @@ serve(async (req) => {
 
     console.log("Authenticated user:", claimsData.claims.sub);
 
-    const { trend, contentType, tone = "profissional e engajador", targetAudience = "gestores de saúde" } = await req.json() as GenerateContentRequest;
+    const { trend, contentType, tone = "profissional e engajador", targetAudience = "gestores de saúde", generateImages = true } = await req.json() as GenerateContentRequest & { generateImages?: boolean };
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -141,6 +141,59 @@ Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} sl
     }
 
     const generatedContent = JSON.parse(jsonMatch[0]);
+
+    // Generate images for all slides if enabled
+    if (generateImages && generatedContent.slides && generatedContent.slides.length > 0) {
+      console.log(`Generating images for ${generatedContent.slides.length} slides...`);
+      
+      const slidesWithImages = await Promise.all(
+        generatedContent.slides.map(async (slide: { headline: string; body: string; imagePrompt: string }, index: number) => {
+          if (!slide.imagePrompt) return slide;
+          
+          try {
+            console.log(`Generating image for slide ${index + 1}...`);
+            
+            const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "google/gemini-2.5-flash-image-preview",
+                messages: [
+                  {
+                    role: "user",
+                    content: `Professional healthcare marketing image for Instagram. Style: Editorial photography, premium magazine quality. ${slide.imagePrompt}. Clean, modern, high-end aesthetic. No text overlays.`,
+                  },
+                ],
+                modalities: ["image", "text"],
+              }),
+            });
+
+            if (!imageResponse.ok) {
+              console.error(`Image generation failed for slide ${index + 1}:`, imageResponse.status);
+              return slide;
+            }
+
+            const imageData = await imageResponse.json();
+            const imageUrl = imageData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+            if (imageUrl) {
+              console.log(`Image generated for slide ${index + 1}`);
+              return { ...slide, previewImage: imageUrl };
+            }
+
+            return slide;
+          } catch (imgError) {
+            console.error(`Error generating image for slide ${index + 1}:`, imgError);
+            return slide;
+          }
+        })
+      );
+
+      generatedContent.slides = slidesWithImages;
+    }
 
     return new Response(JSON.stringify({
       success: true,

@@ -75,7 +75,7 @@ const GenerateContentModal = ({
             Gerar Conteúdo
           </DialogTitle>
           <DialogDescription>
-            Escolha o formato do conteúdo que deseja criar para esta tendência.
+            Escolha o formato do conteúdo. As imagens serão geradas automaticamente com IA.
           </DialogDescription>
         </DialogHeader>
 
@@ -139,12 +139,12 @@ const GenerateContentModal = ({
             {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Gerando...
+                Gerando conteúdo e imagens...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Gerar Conteúdo
+                Gerar Conteúdo com Imagens
               </>
             )}
           </Button>
