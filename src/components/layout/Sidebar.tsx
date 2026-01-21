@@ -6,7 +6,8 @@ import {
   TrendingUp,
   LayoutDashboard,
   FileText,
-  Settings,
+  User,
+  Palette,
   LogOut,
   Sparkles,
   HelpCircle,
@@ -16,7 +17,8 @@ import { Button } from "@/components/ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
   { icon: FileText, label: "Meus Conteúdos", href: "/contents" },
-  { icon: Settings, label: "Configurações", href: "/settings" },
+  { icon: User, label: "Meu Perfil", href: "/profile" },
+  { icon: Palette, label: "Templates", href: "/templates" },
 ];
 
 const Sidebar = () => {

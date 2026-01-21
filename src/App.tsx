@@ -9,6 +9,8 @@ import Dashboard from "./pages/Dashboard";
 import ContentPreview from "./pages/ContentPreview";
 import DownloadPage from "./pages/Download";
 import Contents from "./pages/Contents";
+import Profile from "./pages/Profile";
+import CustomTemplates from "./pages/CustomTemplates";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +28,8 @@ const App = () => (
           <Route path="/content/:id" element={<ContentPreview />} />
           <Route path="/download/:id" element={<DownloadPage />} />
           <Route path="/contents" element={<Contents />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/templates" element={<CustomTemplates />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
