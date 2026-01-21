@@ -48,7 +48,7 @@ const ContentPreview = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [editingSlide, setEditingSlide] = useState<number | null>(null);
   const [slides, setSlides] = useState<Slide[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateStyle>("corporate");
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateStyle>("editorial");
   const [generatingPreview, setGeneratingPreview] = useState(false);
 
   useEffect(() => {
