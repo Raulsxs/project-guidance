@@ -133,6 +133,17 @@ const ContentPreview = () => {
     }
   };
 
+  const handleSetStockImage = (index: number, imageUrl: string) => {
+    const updatedSlides = [...slides];
+    updatedSlides[index] = {
+      ...updatedSlides[index],
+      previewImage: imageUrl,
+    };
+    setSlides(updatedSlides);
+    setCurrentSlide(index);
+    toast.success("Imagem selecionada!");
+  };
+
   const handleGeneratePreview = async (index: number) => {
     const slide = slides[index];
     if (!slide.imagePrompt) {
@@ -328,6 +339,7 @@ const ContentPreview = () => {
               onSaveEdit={handleSaveEdit}
               onCancelEdit={() => setEditingSlide(null)}
               onGeneratePreview={handleGeneratePreview}
+              onSetStockImage={handleSetStockImage}
               generatingPreview={generatingPreview}
             />
 
