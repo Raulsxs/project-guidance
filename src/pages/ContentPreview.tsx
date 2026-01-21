@@ -4,26 +4,28 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
+import { templates, TemplateStyle } from "@/lib/templates";
+import TemplateSelector from "@/components/content/TemplateSelector";
+import SlidePreview from "@/components/content/SlidePreview";
+import SlideEditor from "@/components/content/SlideEditor";
 import {
   ArrowLeft,
   Check,
   X,
   RefreshCw,
-  Edit2,
-  ChevronLeft,
-  ChevronRight,
   Sparkles,
   Loader2,
+  Wand2,
 } from "lucide-react";
 
 interface Slide {
   headline: string;
   body: string;
   imagePrompt: string;
+  previewImage?: string;
 }
 
 interface GeneratedContent {
@@ -46,6 +48,8 @@ const ContentPreview = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [editingSlide, setEditingSlide] = useState<number | null>(null);
   const [slides, setSlides] = useState<Slide[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateStyle>("corporate");
+  const [generatingPreview, setGeneratingPreview] = useState(false);
 
   useEffect(() => {
     const fetchContent = async () => {
@@ -103,21 +107,17 @@ const ContentPreview = () => {
     });
   };
 
-  const handleEditSlide = (index: number) => {
-    setEditingSlide(index);
-  };
-
-  const handleSaveEdit = async (index: number, newHeadline: string, newBody: string) => {
+  const handleSaveEdit = async (index: number, headline: string, body: string, imagePrompt: string) => {
     const updatedSlides = [...slides];
     updatedSlides[index] = {
       ...updatedSlides[index],
-      headline: newHeadline,
-      body: newBody,
+      headline,
+      body,
+      imagePrompt,
     };
     setSlides(updatedSlides);
     setEditingSlide(null);
     
-    // Update in database
     if (id) {
       try {
         await supabase
@@ -133,16 +133,83 @@ const ContentPreview = () => {
     }
   };
 
-  const getSlideStyle = (index: number) => {
-    if (index === 0) return "gradient-primary text-white";
-    if (index === slides.length - 1) return "bg-accent text-white";
-    return "bg-card";
+  const handleGeneratePreview = async (index: number) => {
+    const slide = slides[index];
+    if (!slide.imagePrompt) {
+      toast.error("Este slide não tem um prompt de imagem definido");
+      return;
+    }
+
+    setGeneratingPreview(true);
+    setCurrentSlide(index);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-image", {
+        body: { 
+          prompt: slide.imagePrompt,
+          style: `professional healthcare marketing for Instagram, ${templates[selectedTemplate].name} style`
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.imageUrl) {
+        const updatedSlides = [...slides];
+        updatedSlides[index] = {
+          ...updatedSlides[index],
+          previewImage: data.imageUrl,
+        };
+        setSlides(updatedSlides);
+        toast.success("Preview gerado com sucesso!");
+      }
+    } catch (error) {
+      console.error("Error generating preview:", error);
+      toast.error("Erro ao gerar preview", {
+        description: error instanceof Error ? error.message : "Tente novamente",
+      });
+    } finally {
+      setGeneratingPreview(false);
+    }
   };
 
-  const getSlideType = (index: number) => {
-    if (index === 0) return "cover";
-    if (index === slides.length - 1) return "cta";
-    return "content";
+  const handleGenerateAllPreviews = async () => {
+    setGeneratingPreview(true);
+    
+    for (let i = 0; i < slides.length; i++) {
+      if (slides[i].imagePrompt && !slides[i].previewImage) {
+        setCurrentSlide(i);
+        await handleGeneratePreviewSingle(i);
+      }
+    }
+    
+    setGeneratingPreview(false);
+    toast.success("Todos os previews gerados!");
+  };
+
+  const handleGeneratePreviewSingle = async (index: number) => {
+    const slide = slides[index];
+    if (!slide.imagePrompt) return;
+
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-image", {
+        body: { 
+          prompt: slide.imagePrompt,
+          style: `professional healthcare marketing for Instagram, ${templates[selectedTemplate].name} style`
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.imageUrl) {
+        setSlides(prev => {
+          const updated = [...prev];
+          updated[index] = { ...updated[index], previewImage: data.imageUrl };
+          return updated;
+        });
+      }
+    } catch (error) {
+      console.error("Error generating preview:", error);
+    }
   };
 
   if (loading) {
@@ -166,6 +233,8 @@ const ContentPreview = () => {
     );
   }
 
+  const previewCount = slides.filter(s => s.previewImage).length;
+
   return (
     <DashboardLayout>
       <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
@@ -180,10 +249,10 @@ const ContentPreview = () => {
           </Button>
           <div className="flex-1">
             <h1 className="text-2xl font-heading font-bold text-foreground">
-              Preview do Conteúdo
+              Editor de Conteúdo
             </h1>
             <p className="text-muted-foreground">
-              Revise e aprove o conteúdo gerado antes de baixar
+              Personalize seu conteúdo antes de baixar
             </p>
           </div>
           <Badge variant="secondary" className="text-sm">
@@ -192,192 +261,91 @@ const ContentPreview = () => {
         </div>
 
         {/* Content Info */}
-        <Card className="shadow-card border-border/50">
+        <Card className="shadow-card border-border/50 bg-gradient-to-r from-primary/5 to-accent/5">
           <CardContent className="p-4">
-            <p className="font-medium text-foreground">{content.title}</p>
-            <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{content.caption}</p>
-            {content.hashtags && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {content.hashtags.slice(0, 5).map((tag, i) => (
-                  <Badge key={i} variant="outline" className="text-xs">
-                    {tag}
-                  </Badge>
-                ))}
-                {content.hashtags.length > 5 && (
-                  <Badge variant="outline" className="text-xs">
-                    +{content.hashtags.length - 5}
-                  </Badge>
-                )}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <p className="font-medium text-foreground">{content.title}</p>
+                <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{content.caption}</p>
               </div>
-            )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleGenerateAllPreviews}
+                disabled={generatingPreview}
+              >
+                {generatingPreview ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Wand2 className="w-4 h-4" />
+                )}
+                Gerar Previews ({previewCount}/{slides.length})
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Content Preview */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Visual Preview */}
-          <div className="space-y-4">
-            <h2 className="text-lg font-heading font-semibold text-foreground flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              Preview Visual
-            </h2>
-
-            {/* Phone Mockup */}
-            <div className="flex justify-center">
-              <div className="relative w-[300px]">
-                {/* Phone Frame */}
-                <div className="bg-foreground rounded-[2.5rem] p-2 shadow-lg">
-                  <div className="bg-background rounded-[2rem] overflow-hidden aspect-[4/5]">
-                    {/* Slide Content */}
-                    <div
-                      className={cn(
-                        "w-full h-full flex flex-col items-center justify-center p-6 text-center transition-all",
-                        getSlideStyle(currentSlide)
-                      )}
-                    >
-                      <span className="text-xs opacity-60 mb-4">
-                        Slide {currentSlide + 1} de {slides.length}
-                      </span>
-                      <h3 className={cn(
-                        "text-xl font-heading font-bold mb-3",
-                        getSlideType(currentSlide) === "content" && "text-foreground"
-                      )}>
-                        {slides[currentSlide]?.headline}
-                      </h3>
-                      <p className={cn(
-                        "text-sm leading-relaxed",
-                        getSlideType(currentSlide) === "content" && "text-muted-foreground"
-                      )}>
-                        {slides[currentSlide]?.body}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Navigation */}
-                <div className="flex items-center justify-center gap-4 mt-4">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setCurrentSlide(Math.max(0, currentSlide - 1))}
-                    disabled={currentSlide === 0}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-
-                  {/* Dots */}
-                  <div className="flex gap-2">
-                    {slides.map((_, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setCurrentSlide(index)}
-                        className={cn(
-                          "w-2 h-2 rounded-full transition-all",
-                          currentSlide === index
-                            ? "bg-primary w-6"
-                            : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
-                        )}
-                      />
-                    ))}
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() =>
-                      setCurrentSlide(Math.min(slides.length - 1, currentSlide + 1))
-                    }
-                    disabled={currentSlide === slides.length - 1}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left Column - Preview */}
+          <div className="lg:col-span-5 space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-heading font-semibold text-foreground flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                Preview Visual
+              </h2>
             </div>
+
+            <SlidePreview
+              slides={slides}
+              currentSlide={currentSlide}
+              setCurrentSlide={setCurrentSlide}
+              template={templates[selectedTemplate]}
+              generatingImage={generatingPreview}
+            />
+
+            <Separator />
+
+            <TemplateSelector
+              selectedTemplate={selectedTemplate}
+              onSelectTemplate={setSelectedTemplate}
+            />
           </div>
 
-          {/* Text Editor */}
-          <div className="space-y-4">
+          {/* Right Column - Editor */}
+          <div className="lg:col-span-7 space-y-4">
             <h2 className="text-lg font-heading font-semibold text-foreground">
-              Conteúdo dos Slides
+              Editar Slides
             </h2>
 
-            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-              {slides.map((slide, index) => (
-                <Card
-                  key={index}
-                  className={cn(
-                    "shadow-card border-border/50 transition-all cursor-pointer",
-                    currentSlide === index && "ring-2 ring-primary"
-                  )}
-                  onClick={() => setCurrentSlide(index)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <Badge variant="outline" className="text-xs">
-                        Slide {index + 1}
-                      </Badge>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditSlide(index);
-                        }}
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </Button>
-                    </div>
+            <SlideEditor
+              slides={slides}
+              currentSlide={currentSlide}
+              editingSlide={editingSlide}
+              onSlideClick={setCurrentSlide}
+              onEditSlide={setEditingSlide}
+              onSaveEdit={handleSaveEdit}
+              onCancelEdit={() => setEditingSlide(null)}
+              onGeneratePreview={handleGeneratePreview}
+              generatingPreview={generatingPreview}
+            />
 
-                    {editingSlide === index ? (
-                      <div className="space-y-3">
-                        <Textarea
-                          defaultValue={slide.headline}
-                          className="text-sm font-medium"
-                          rows={1}
-                          id={`headline-${index}`}
-                        />
-                        <Textarea
-                          defaultValue={slide.body}
-                          className="text-sm"
-                          rows={3}
-                          id={`body-${index}`}
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              const headline = (document.getElementById(`headline-${index}`) as HTMLTextAreaElement).value;
-                              const body = (document.getElementById(`body-${index}`) as HTMLTextAreaElement).value;
-                              handleSaveEdit(index, headline, body);
-                            }}
-                          >
-                            Salvar
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setEditingSlide(null)}
-                          >
-                            Cancelar
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="font-medium text-foreground text-sm">
-                          {slide.headline}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {slide.body}
-                        </p>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            {/* Hashtags */}
+            {content.hashtags && content.hashtags.length > 0 && (
+              <Card className="shadow-card border-border/50">
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground mb-2">Hashtags</p>
+                  <div className="flex flex-wrap gap-1">
+                    {content.hashtags.map((tag, i) => (
+                      <Badge key={i} variant="outline" className="text-xs">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
 
@@ -397,7 +365,7 @@ const ContentPreview = () => {
             onClick={handleRegenerate}
           >
             <RefreshCw className="w-4 h-4" />
-            Regenerar
+            Regenerar Tudo
           </Button>
           <div className="flex-1" />
           <Button className="gap-2" onClick={handleApprove}>
