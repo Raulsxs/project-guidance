@@ -8,8 +8,10 @@ import GenerateContentModal from "@/components/dashboard/GenerateContentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { Search, RefreshCw, Loader2, Sparkles } from "lucide-react";
+import { Search, RefreshCw, Loader2, Sparkles, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface DbTrend {
   id: string;
@@ -48,9 +50,11 @@ const Dashboard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [trends, setTrends] = useState<TrendCardData[]>([]);
+  const [savedTrendIds, setSavedTrendIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
 
   const fetchTrends = async () => {
     try {
@@ -84,9 +88,72 @@ const Dashboard = () => {
     }
   };
 
+  const fetchSavedTrends = async () => {
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) return;
+
+      const { data, error } = await supabase
+        .from("saved_trends")
+        .select("trend_id")
+        .eq("user_id", session.session.user.id);
+
+      if (error) throw error;
+
+      setSavedTrendIds(new Set(data.map(item => item.trend_id)));
+    } catch (error) {
+      console.error("Error fetching saved trends:", error);
+    }
+  };
+
   useEffect(() => {
     fetchTrends();
+    fetchSavedTrends();
   }, []);
+
+  const handleToggleSave = async (trendId: string) => {
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) {
+        toast.error("Faça login para salvar tendências");
+        return;
+      }
+
+      const isSaved = savedTrendIds.has(trendId);
+
+      if (isSaved) {
+        const { error } = await supabase
+          .from("saved_trends")
+          .delete()
+          .eq("trend_id", trendId)
+          .eq("user_id", session.session.user.id);
+
+        if (error) throw error;
+
+        setSavedTrendIds(prev => {
+          const next = new Set(prev);
+          next.delete(trendId);
+          return next;
+        });
+        toast.success("Tendência removida dos favoritos");
+      } else {
+        const { error } = await supabase
+          .from("saved_trends")
+          .insert({
+            trend_id: trendId,
+            user_id: session.session.user.id,
+          });
+
+        if (error) throw error;
+
+        setSavedTrendIds(prev => new Set(prev).add(trendId));
+        toast.success("Tendência salva nos favoritos!");
+      }
+    } catch (error) {
+      console.error("Error toggling save:", error);
+      toast.error("Erro ao salvar tendência");
+    }
+  };
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -135,6 +202,11 @@ const Dashboard = () => {
 
   // Filter trends based on search and filters
   const filteredTrends = trends.filter((trend) => {
+    // Saved only filter
+    if (showSavedOnly && !savedTrendIds.has(trend.id)) {
+      return false;
+    }
+
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -316,6 +388,19 @@ const Dashboard = () => {
               className="pl-10"
             />
           </div>
+          <Button
+            variant={showSavedOnly ? "default" : "outline"}
+            className={cn("gap-2", showSavedOnly && "bg-rose-500 hover:bg-rose-600")}
+            onClick={() => setShowSavedOnly(!showSavedOnly)}
+          >
+            <Heart className={cn("w-4 h-4", showSavedOnly && "fill-current")} />
+            Favoritos
+            {savedTrendIds.size > 0 && (
+              <Badge variant="secondary" className="ml-1 h-5 px-1.5">
+                {savedTrendIds.size}
+              </Badge>
+            )}
+          </Button>
           <TrendFilters 
             filters={filters} 
             onFilterChange={setFilters}
@@ -327,6 +412,7 @@ const Dashboard = () => {
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Mostrando <span className="font-medium text-foreground">{filteredTrends.length}</span> tendências
+            {showSavedOnly && " favoritas"}
           </p>
         </div>
 
@@ -338,6 +424,8 @@ const Dashboard = () => {
               trend={trend}
               onGenerateContent={handleGenerateContent}
               onViewDetails={handleViewDetails}
+              isSaved={savedTrendIds.has(trend.id)}
+              onToggleSave={handleToggleSave}
             />
           ))}
         </div>

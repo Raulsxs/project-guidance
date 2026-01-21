@@ -6,8 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { Edit2, Image, Wand2, Check, X, Sparkles, Type, FileText, ImagePlus } from "lucide-react";
+import { Edit2, Image, Wand2, Check, X, Sparkles, Type, FileText, ImagePlus, Upload } from "lucide-react";
 import ImagePicker from "./ImagePicker";
+import ImageUpload from "./ImageUpload";
 
 interface Slide {
   headline: string;
@@ -46,6 +47,8 @@ const SlideEditor = ({
   const [editImagePrompt, setEditImagePrompt] = useState("");
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [imagePickerSlideIndex, setImagePickerSlideIndex] = useState<number | null>(null);
+  const [imageUploadOpen, setImageUploadOpen] = useState(false);
+  const [imageUploadSlideIndex, setImageUploadSlideIndex] = useState<number | null>(null);
 
   const handleStartEdit = (index: number) => {
     setEditHeadline(slides[index].headline);
@@ -69,6 +72,19 @@ const SlideEditor = ({
     }
     setImagePickerOpen(false);
     setImagePickerSlideIndex(null);
+  };
+
+  const handleOpenUpload = (index: number) => {
+    setImageUploadSlideIndex(index);
+    setImageUploadOpen(true);
+  };
+
+  const handleUploadComplete = (imageUrl: string) => {
+    if (imageUploadSlideIndex !== null) {
+      onSetStockImage(imageUploadSlideIndex, imageUrl);
+    }
+    setImageUploadOpen(false);
+    setImageUploadSlideIndex(null);
   };
 
   const getSlideLabel = (index: number) => {
@@ -124,6 +140,22 @@ const SlideEditor = ({
                   </div>
                   
                   <div className="flex items-center gap-1">
+                    {/* Upload Image Button */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-8 w-8 p-0 rounded-full",
+                        "opacity-0 group-hover:opacity-100 transition-opacity"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenUpload(index);
+                      }}
+                      title="Upload de imagem"
+                    >
+                      <Upload className="w-4 h-4 text-blue-500" />
+                    </Button>
                     {/* Stock Image Button */}
                     <Button
                       variant="ghost"
@@ -291,6 +323,16 @@ const SlideEditor = ({
           setImagePickerSlideIndex(null);
         }}
         onSelectImage={handleSelectStockImage}
+      />
+
+      {/* Image Upload Dialog */}
+      <ImageUpload
+        open={imageUploadOpen}
+        onClose={() => {
+          setImageUploadOpen(false);
+          setImageUploadSlideIndex(null);
+        }}
+        onUploadComplete={handleUploadComplete}
       />
     </>
   );
