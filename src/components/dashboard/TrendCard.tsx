@@ -7,8 +7,11 @@ import {
   ExternalLink, 
   Sparkles, 
   Clock,
-  Newspaper
+  Newspaper,
+  Heart,
+  Loader2
 } from "lucide-react";
+import { useState } from "react";
 
 export interface Trend {
   id: string;
@@ -25,6 +28,8 @@ interface TrendCardProps {
   trend: Trend;
   onGenerateContent: (trend: Trend) => void;
   onViewDetails: (trend: Trend) => void;
+  isSaved?: boolean;
+  onToggleSave?: (trendId: string) => Promise<void>;
 }
 
 const getScoreColor = (score: number) => {
@@ -47,12 +52,32 @@ const themeColors: Record<string, string> = {
   "Dispositivos Médicos": "bg-destructive/10 text-destructive",
 };
 
-const TrendCard = ({ trend, onGenerateContent, onViewDetails }: TrendCardProps) => {
+const TrendCard = ({ 
+  trend, 
+  onGenerateContent, 
+  onViewDetails, 
+  isSaved = false,
+  onToggleSave 
+}: TrendCardProps) => {
+  const [isSaving, setIsSaving] = useState(false);
+
   const formattedDate = new Date(trend.publishedAt).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+
+  const handleToggleSave = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onToggleSave) return;
+    
+    setIsSaving(true);
+    try {
+      await onToggleSave(trend.id);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <Card className="group shadow-card hover:shadow-card-hover transition-all duration-300 border-border/50 overflow-hidden">
@@ -78,9 +103,29 @@ const TrendCard = ({ trend, onGenerateContent, onViewDetails }: TrendCardProps) 
                 {trend.score.toFixed(1)}
               </div>
             </div>
-            <span className={cn("text-xs px-2 py-1 rounded-full", getScoreColor(trend.score))}>
-              {getScoreLabel(trend.score)}
-            </span>
+            <div className="flex items-center gap-2">
+              {onToggleSave && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 w-8 p-0",
+                    isSaved && "text-rose-500 hover:text-rose-600"
+                  )}
+                  onClick={handleToggleSave}
+                  disabled={isSaving}
+                >
+                  {isSaving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Heart className={cn("w-4 h-4", isSaved && "fill-current")} />
+                  )}
+                </Button>
+              )}
+              <span className={cn("text-xs px-2 py-1 rounded-full", getScoreColor(trend.score))}>
+                {getScoreLabel(trend.score)}
+              </span>
+            </div>
           </div>
 
           {/* Title */}

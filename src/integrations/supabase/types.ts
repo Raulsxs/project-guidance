@@ -22,6 +22,7 @@ export type Database = {
           hashtags: string[] | null
           id: string
           image_urls: string[] | null
+          scheduled_at: string | null
           slides: Json | null
           status: string | null
           title: string
@@ -36,6 +37,7 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
+          scheduled_at?: string | null
           slides?: Json | null
           status?: string | null
           title: string
@@ -50,6 +52,7 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
+          scheduled_at?: string | null
           slides?: Json | null
           status?: string | null
           title?: string

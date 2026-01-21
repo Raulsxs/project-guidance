@@ -11,6 +11,8 @@ import { templates, TemplateStyle } from "@/lib/templates";
 import TemplateSelector from "@/components/content/TemplateSelector";
 import SlidePreview from "@/components/content/SlidePreview";
 import SlideEditor from "@/components/content/SlideEditor";
+import RegenerateModal from "@/components/content/RegenerateModal";
+import ScheduleModal from "@/components/content/ScheduleModal";
 import {
   ArrowLeft,
   Check,
@@ -19,6 +21,7 @@ import {
   Sparkles,
   Loader2,
   Wand2,
+  CalendarClock,
 } from "lucide-react";
 
 interface Slide {
@@ -50,6 +53,10 @@ const ContentPreview = () => {
   const [slides, setSlides] = useState<Slide[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateStyle>("editorial");
   const [generatingPreview, setGeneratingPreview] = useState(false);
+  const [isRegenerateModalOpen, setIsRegenerateModalOpen] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
 
   useEffect(() => {
     const fetchContent = async () => {
@@ -101,10 +108,90 @@ const ContentPreview = () => {
     }
   };
 
-  const handleRegenerate = () => {
-    toast.info("Regenerando conteúdo...", {
-      description: "Esta funcionalidade será implementada em breve.",
-    });
+  const handleRegenerate = async (customPrompt: string) => {
+    if (!id || !content) return;
+    
+    setIsRegenerating(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-content", {
+        body: {
+          trend: {
+            title: content.title,
+            description: content.caption,
+            theme: "Saúde",
+            keywords: content.hashtags,
+          },
+          contentType: content.content_type,
+          customPrompt: customPrompt || undefined,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || "Erro ao regenerar");
+      }
+
+      // Update content in database
+      const { error: updateError } = await supabase
+        .from("generated_contents")
+        .update({
+          title: data.content.title,
+          caption: data.content.caption,
+          hashtags: data.content.hashtags,
+          slides: data.content.slides,
+        })
+        .eq("id", id);
+
+      if (updateError) throw updateError;
+
+      // Update local state
+      setContent({
+        ...content,
+        title: data.content.title,
+        caption: data.content.caption,
+        hashtags: data.content.hashtags,
+      });
+      setSlides(data.content.slides);
+      setCurrentSlide(0);
+      
+      toast.success("Conteúdo regenerado com sucesso!");
+      setIsRegenerateModalOpen(false);
+    } catch (error) {
+      console.error("Error regenerating:", error);
+      toast.error("Erro ao regenerar conteúdo");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const handleSchedule = async (scheduledDate: Date) => {
+    if (!id) return;
+    
+    setIsScheduling(true);
+    
+    try {
+      const { error } = await supabase
+        .from("generated_contents")
+        .update({ 
+          scheduled_at: scheduledDate.toISOString(),
+          status: "scheduled" 
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      toast.success("Conteúdo agendado!", {
+        description: `Publicação agendada para ${scheduledDate.toLocaleString("pt-BR")}`,
+      });
+      setIsScheduleModalOpen(false);
+    } catch (error) {
+      console.error("Error scheduling:", error);
+      toast.error("Erro ao agendar publicação");
+    } finally {
+      setIsScheduling(false);
+    }
   };
 
   const handleSaveEdit = async (index: number, headline: string, body: string, imagePrompt: string) => {
@@ -374,10 +461,18 @@ const ContentPreview = () => {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={handleRegenerate}
+            onClick={() => setIsRegenerateModalOpen(true)}
           >
             <RefreshCw className="w-4 h-4" />
             Regenerar Tudo
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => setIsScheduleModalOpen(true)}
+          >
+            <CalendarClock className="w-4 h-4" />
+            Agendar
           </Button>
           <div className="flex-1" />
           <Button className="gap-2" onClick={handleApprove}>
@@ -385,6 +480,23 @@ const ContentPreview = () => {
             Aprovar e Baixar
           </Button>
         </div>
+
+        {/* Regenerate Modal */}
+        <RegenerateModal
+          open={isRegenerateModalOpen}
+          onClose={() => setIsRegenerateModalOpen(false)}
+          onRegenerate={handleRegenerate}
+          isRegenerating={isRegenerating}
+          currentTitle={content?.title || ""}
+        />
+
+        {/* Schedule Modal */}
+        <ScheduleModal
+          open={isScheduleModalOpen}
+          onClose={() => setIsScheduleModalOpen(false)}
+          onSchedule={handleSchedule}
+          isScheduling={isScheduling}
+        />
       </div>
     </DashboardLayout>
   );
