@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,108 +7,164 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import {
   ArrowLeft,
   Check,
   X,
   RefreshCw,
-  Download,
   Edit2,
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  Loader2,
 } from "lucide-react";
-import { mockTrends } from "@/data/mockTrends";
 
-const mockCarouselSlides = [
-  {
-    slideNumber: 1,
-    title: "IA Generativa na Saúde",
-    content: "A revolução dos diagnósticos por imagem chegou aos hospitais brasileiros",
-    type: "cover",
-  },
-  {
-    slideNumber: 2,
-    title: "Redução de 60% no Tempo",
-    content: "Diagnósticos que levavam horas agora são concluídos em minutos com auxílio de modelos de IA avançados",
-    type: "content",
-  },
-  {
-    slideNumber: 3,
-    title: "Precisão Aumentada",
-    content: "Detecção de anomalias com taxas de acerto superiores a 95%, superando a análise humana isolada",
-    type: "content",
-  },
-  {
-    slideNumber: 4,
-    title: "Implementação Simples",
-    content: "Integração com sistemas existentes de PACS e RIS sem necessidade de grandes mudanças na infraestrutura",
-    type: "content",
-  },
-  {
-    slideNumber: 5,
-    title: "O Futuro é Agora",
-    content: "Invista na transformação digital do seu centro de diagnóstico. A IA é a parceira que seus radiologistas precisam.",
-    type: "cta",
-  },
-];
+interface Slide {
+  headline: string;
+  body: string;
+  imagePrompt: string;
+}
+
+interface GeneratedContent {
+  id: string;
+  title: string;
+  caption: string;
+  hashtags: string[];
+  slides: Slide[];
+  content_type: string;
+  trend_id: string | null;
+  status: string;
+}
 
 const ContentPreview = () => {
   const navigate = useNavigate();
-  const { trendId } = useParams();
-  const [searchParams] = useSearchParams();
-  const format = searchParams.get("format") || "carousel";
-
-  const trend = mockTrends.find((t) => t.id === trendId);
+  const { id } = useParams();
+  
+  const [content, setContent] = useState<GeneratedContent | null>(null);
+  const [loading, setLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [slides, setSlides] = useState(mockCarouselSlides);
-  const [isEditing, setIsEditing] = useState(false);
   const [editingSlide, setEditingSlide] = useState<number | null>(null);
+  const [slides, setSlides] = useState<Slide[]>([]);
+
+  useEffect(() => {
+    const fetchContent = async () => {
+      if (!id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from("generated_contents")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (error) throw error;
+
+        setContent(data as unknown as GeneratedContent);
+        setSlides((data.slides as unknown) as Slide[]);
+      } catch (error) {
+        console.error("Error fetching content:", error);
+        toast.error("Erro ao carregar conteúdo");
+        navigate("/dashboard");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchContent();
+  }, [id, navigate]);
 
   const handleApprove = () => {
     toast.success("Conteúdo aprovado!", {
       description: "Você pode baixar as imagens agora.",
     });
-    navigate(`/download/${trendId}?format=${format}`);
+    navigate(`/download/${id}`);
   };
 
-  const handleReject = () => {
-    toast.info("Conteúdo rejeitado");
-    navigate("/dashboard");
+  const handleReject = async () => {
+    if (!id) return;
+    
+    try {
+      await supabase
+        .from("generated_contents")
+        .update({ status: "rejected" })
+        .eq("id", id);
+      
+      toast.info("Conteúdo rejeitado");
+      navigate("/dashboard");
+    } catch (error) {
+      console.error("Error rejecting content:", error);
+    }
   };
 
   const handleRegenerate = () => {
-    toast.info("Regenerando conteúdo...");
+    toast.info("Regenerando conteúdo...", {
+      description: "Esta funcionalidade será implementada em breve.",
+    });
   };
 
   const handleEditSlide = (index: number) => {
     setEditingSlide(index);
-    setIsEditing(true);
   };
 
-  const handleSaveEdit = (index: number, newTitle: string, newContent: string) => {
+  const handleSaveEdit = async (index: number, newHeadline: string, newBody: string) => {
     const updatedSlides = [...slides];
     updatedSlides[index] = {
       ...updatedSlides[index],
-      title: newTitle,
-      content: newContent,
+      headline: newHeadline,
+      body: newBody,
     };
     setSlides(updatedSlides);
-    setIsEditing(false);
     setEditingSlide(null);
-    toast.success("Slide atualizado");
-  };
-
-  const getSlideStyle = (type: string) => {
-    switch (type) {
-      case "cover":
-        return "gradient-primary text-white";
-      case "cta":
-        return "bg-accent text-white";
-      default:
-        return "bg-card";
+    
+    // Update in database
+    if (id) {
+      try {
+        await supabase
+          .from("generated_contents")
+          .update({ slides: JSON.parse(JSON.stringify(updatedSlides)) })
+          .eq("id", id);
+        
+        toast.success("Slide atualizado");
+      } catch (error) {
+        console.error("Error updating slide:", error);
+        toast.error("Erro ao salvar alterações");
+      }
     }
   };
+
+  const getSlideStyle = (index: number) => {
+    if (index === 0) return "gradient-primary text-white";
+    if (index === slides.length - 1) return "bg-accent text-white";
+    return "bg-card";
+  };
+
+  const getSlideType = (index: number) => {
+    if (index === 0) return "cover";
+    if (index === slides.length - 1) return "cta";
+    return "content";
+  };
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!content) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+          <p className="text-muted-foreground">Conteúdo não encontrado</p>
+          <Button onClick={() => navigate("/dashboard")}>Voltar ao Dashboard</Button>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -131,22 +187,31 @@ const ContentPreview = () => {
             </p>
           </div>
           <Badge variant="secondary" className="text-sm">
-            {format === "carousel" ? "Carrossel" : format === "story" ? "Story" : "Post"}
+            {content.content_type === "carousel" ? "Carrossel" : content.content_type === "story" ? "Story" : "Post"}
           </Badge>
         </div>
 
-        {/* Trend Info */}
-        {trend && (
-          <Card className="shadow-card border-border/50">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Badge className="bg-primary/10 text-primary">{trend.theme}</Badge>
-                <span className="text-sm text-muted-foreground">{trend.source}</span>
+        {/* Content Info */}
+        <Card className="shadow-card border-border/50">
+          <CardContent className="p-4">
+            <p className="font-medium text-foreground">{content.title}</p>
+            <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{content.caption}</p>
+            {content.hashtags && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {content.hashtags.slice(0, 5).map((tag, i) => (
+                  <Badge key={i} variant="outline" className="text-xs">
+                    {tag}
+                  </Badge>
+                ))}
+                {content.hashtags.length > 5 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{content.hashtags.length - 5}
+                  </Badge>
+                )}
               </div>
-              <p className="font-medium text-foreground">{trend.title}</p>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
         {/* Content Preview */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -167,23 +232,23 @@ const ContentPreview = () => {
                     <div
                       className={cn(
                         "w-full h-full flex flex-col items-center justify-center p-6 text-center transition-all",
-                        getSlideStyle(slides[currentSlide].type)
+                        getSlideStyle(currentSlide)
                       )}
                     >
                       <span className="text-xs opacity-60 mb-4">
-                        Slide {slides[currentSlide].slideNumber} de {slides.length}
+                        Slide {currentSlide + 1} de {slides.length}
                       </span>
                       <h3 className={cn(
                         "text-xl font-heading font-bold mb-3",
-                        slides[currentSlide].type !== "cover" && slides[currentSlide].type !== "cta" && "text-foreground"
+                        getSlideType(currentSlide) === "content" && "text-foreground"
                       )}>
-                        {slides[currentSlide].title}
+                        {slides[currentSlide]?.headline}
                       </h3>
                       <p className={cn(
                         "text-sm leading-relaxed",
-                        slides[currentSlide].type !== "cover" && slides[currentSlide].type !== "cta" && "text-muted-foreground"
+                        getSlideType(currentSlide) === "content" && "text-muted-foreground"
                       )}>
-                        {slides[currentSlide].content}
+                        {slides[currentSlide]?.body}
                       </p>
                     </div>
                   </div>
@@ -250,7 +315,7 @@ const ContentPreview = () => {
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <Badge variant="outline" className="text-xs">
-                        Slide {slide.slideNumber}
+                        Slide {index + 1}
                       </Badge>
                       <Button
                         variant="ghost"
@@ -268,24 +333,24 @@ const ContentPreview = () => {
                     {editingSlide === index ? (
                       <div className="space-y-3">
                         <Textarea
-                          defaultValue={slide.title}
+                          defaultValue={slide.headline}
                           className="text-sm font-medium"
                           rows={1}
-                          id={`title-${index}`}
+                          id={`headline-${index}`}
                         />
                         <Textarea
-                          defaultValue={slide.content}
+                          defaultValue={slide.body}
                           className="text-sm"
                           rows={3}
-                          id={`content-${index}`}
+                          id={`body-${index}`}
                         />
                         <div className="flex gap-2">
                           <Button
                             size="sm"
                             onClick={() => {
-                              const title = (document.getElementById(`title-${index}`) as HTMLTextAreaElement).value;
-                              const content = (document.getElementById(`content-${index}`) as HTMLTextAreaElement).value;
-                              handleSaveEdit(index, title, content);
+                              const headline = (document.getElementById(`headline-${index}`) as HTMLTextAreaElement).value;
+                              const body = (document.getElementById(`body-${index}`) as HTMLTextAreaElement).value;
+                              handleSaveEdit(index, headline, body);
                             }}
                           >
                             Salvar
@@ -293,10 +358,7 @@ const ContentPreview = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => {
-                              setIsEditing(false);
-                              setEditingSlide(null);
-                            }}
+                            onClick={() => setEditingSlide(null)}
                           >
                             Cancelar
                           </Button>
@@ -305,10 +367,10 @@ const ContentPreview = () => {
                     ) : (
                       <>
                         <p className="font-medium text-foreground text-sm">
-                          {slide.title}
+                          {slide.headline}
                         </p>
                         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {slide.content}
+                          {slide.body}
                         </p>
                       </>
                     )}
