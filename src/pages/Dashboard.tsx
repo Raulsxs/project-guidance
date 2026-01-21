@@ -4,6 +4,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import TrendCard from "@/components/dashboard/TrendCard";
 import TrendFilters, { FilterState } from "@/components/dashboard/TrendFilters";
 import StatsCards from "@/components/dashboard/StatsCards";
+import AnalyticsChart from "@/components/dashboard/AnalyticsChart";
 import GenerateContentModal from "@/components/dashboard/GenerateContentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -55,6 +56,7 @@ const Dashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [contentStats, setContentStats] = useState<{ created_at: string; status: string }[]>([]);
 
   const fetchTrends = async () => {
     try {
@@ -106,9 +108,28 @@ const Dashboard = () => {
     }
   };
 
+  const fetchContentStats = async () => {
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) return;
+
+      const { data, error } = await supabase
+        .from("generated_contents")
+        .select("created_at, status")
+        .eq("user_id", session.session.user.id)
+        .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+
+      if (error) throw error;
+      setContentStats(data || []);
+    } catch (error) {
+      console.error("Error fetching content stats:", error);
+    }
+  };
+
   useEffect(() => {
     fetchTrends();
     fetchSavedTrends();
+    fetchContentStats();
   }, []);
 
   const handleToggleSave = async (trendId: string) => {
@@ -376,6 +397,9 @@ const Dashboard = () => {
 
         {/* Stats */}
         <StatsCards trendsCount={trends.length} />
+
+        {/* Analytics Chart */}
+        <AnalyticsChart contents={contentStats} />
 
         {/* Search & Filters */}
         <div className="flex flex-col lg:flex-row gap-4">

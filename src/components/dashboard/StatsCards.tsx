@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { TrendingUp, FileText, CheckCircle, Clock } from "lucide-react";
+import { TrendingUp, FileText, CheckCircle, Clock, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Stat {
   label: string;
@@ -16,7 +18,50 @@ interface StatsCardsProps {
   trendsCount?: number;
 }
 
+interface ContentStats {
+  total: number;
+  approved: number;
+  draft: number;
+  scheduled: number;
+}
+
 const StatsCards = ({ trendsCount = 0 }: StatsCardsProps) => {
+  const [contentStats, setContentStats] = useState<ContentStats>({
+    total: 0,
+    approved: 0,
+    draft: 0,
+    scheduled: 0,
+  });
+
+  useEffect(() => {
+    fetchContentStats();
+  }, []);
+
+  const fetchContentStats = async () => {
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) return;
+
+      const { data, error } = await supabase
+        .from("generated_contents")
+        .select("status, scheduled_at")
+        .eq("user_id", session.session.user.id);
+
+      if (error) throw error;
+
+      const stats = {
+        total: data?.length || 0,
+        approved: data?.filter((c) => c.status === "approved").length || 0,
+        draft: data?.filter((c) => c.status === "draft").length || 0,
+        scheduled: data?.filter((c) => c.scheduled_at).length || 0,
+      };
+
+      setContentStats(stats);
+    } catch (error) {
+      console.error("Error fetching content stats:", error);
+    }
+  };
+
   const stats: Stat[] = [
     {
       label: "Tendências Ativas",
@@ -29,8 +74,8 @@ const StatsCards = ({ trendsCount = 0 }: StatsCardsProps) => {
     },
     {
       label: "Conteúdos Gerados",
-      value: 0,
-      change: "Esta semana",
+      value: contentStats.total,
+      change: "Total criados",
       changeType: "neutral",
       icon: FileText,
       iconColor: "text-accent",
@@ -38,19 +83,19 @@ const StatsCards = ({ trendsCount = 0 }: StatsCardsProps) => {
     },
     {
       label: "Prontos para Publicar",
-      value: 0,
-      change: "Aguardando revisão",
+      value: contentStats.approved,
+      change: "Aprovados",
       changeType: "positive",
       icon: CheckCircle,
       iconColor: "text-success",
       iconBg: "bg-success/10",
     },
     {
-      label: "Rascunhos",
-      value: 0,
-      change: "Continuar editando",
+      label: "Agendados",
+      value: contentStats.scheduled,
+      change: "Publicação programada",
       changeType: "neutral",
-      icon: Clock,
+      icon: Calendar,
       iconColor: "text-warning",
       iconBg: "bg-warning/10",
     },

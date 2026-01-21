@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +31,7 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  CalendarClock,
 } from "lucide-react";
 
 interface Slide {
@@ -49,13 +51,17 @@ interface GeneratedContent {
   status: string;
   image_urls: string[] | null;
   created_at: string;
+  scheduled_at: string | null;
 }
+
+type StatusFilter = "all" | "draft" | "approved" | "scheduled";
 
 const Contents = () => {
   const navigate = useNavigate();
   const [contents, setContents] = useState<GeneratedContent[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchContents = async () => {
@@ -100,7 +106,10 @@ const Contents = () => {
     }
   };
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: string, scheduledAt: string | null) => {
+    if (scheduledAt) {
+      return <CalendarClock className="w-4 h-4 text-primary" />;
+    }
     switch (status) {
       case "approved":
         return <CheckCircle className="w-4 h-4 text-success" />;
@@ -111,7 +120,10 @@ const Contents = () => {
     }
   };
 
-  const getStatusLabel = (status: string) => {
+  const getStatusLabel = (status: string, scheduledAt: string | null) => {
+    if (scheduledAt) {
+      return "Agendado";
+    }
     switch (status) {
       case "approved":
         return "Aprovado";
@@ -133,10 +145,34 @@ const Contents = () => {
     }
   };
 
-  const filteredContents = contents.filter((content) =>
-    content.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    content.caption?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredContents = contents.filter((content) => {
+    // Status filter
+    if (statusFilter !== "all") {
+      if (statusFilter === "scheduled" && !content.scheduled_at) return false;
+      if (statusFilter === "draft" && content.status !== "draft") return false;
+      if (statusFilter === "approved" && content.status !== "approved") return false;
+    }
+
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return (
+        content.title.toLowerCase().includes(query) ||
+        content.caption?.toLowerCase().includes(query)
+      );
+    }
+
+    return true;
+  });
+
+  const getCounts = () => ({
+    all: contents.length,
+    draft: contents.filter((c) => c.status === "draft").length,
+    approved: contents.filter((c) => c.status === "approved").length,
+    scheduled: contents.filter((c) => c.scheduled_at).length,
+  });
+
+  const counts = getCounts();
 
   if (loading) {
     return (
@@ -167,15 +203,48 @@ const Contents = () => {
           </Badge>
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por título ou legenda..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por título ou legenda..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+            <TabsList>
+              <TabsTrigger value="all" className="gap-1.5">
+                Todos
+                <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                  {counts.all}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="draft" className="gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                Rascunhos
+                <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                  {counts.draft}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="approved" className="gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5" />
+                Aprovados
+                <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                  {counts.approved}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="scheduled" className="gap-1.5">
+                <CalendarClock className="w-3.5 h-3.5" />
+                Agendados
+                <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                  {counts.scheduled}
+                </Badge>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
 
         {/* Contents Grid */}
@@ -212,7 +281,9 @@ const Contents = () => {
                   {/* Status Bar */}
                   <div
                     className={`h-1 w-full ${
-                      content.status === "approved"
+                      content.scheduled_at
+                        ? "bg-primary"
+                        : content.status === "approved"
                         ? "bg-success"
                         : content.status === "rejected"
                         ? "bg-destructive"
@@ -227,10 +298,10 @@ const Contents = () => {
                         <Badge variant="outline" className="text-xs">
                           {getContentTypeLabel(content.content_type)}
                         </Badge>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          {getStatusIcon(content.status)}
-                          <span>{getStatusLabel(content.status)}</span>
-                        </div>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        {getStatusIcon(content.status, content.scheduled_at)}
+                        <span>{getStatusLabel(content.status, content.scheduled_at)}</span>
+                      </div>
                       </div>
                     </div>
 
