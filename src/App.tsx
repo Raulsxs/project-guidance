@@ -8,6 +8,7 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import ContentPreview from "./pages/ContentPreview";
 import DownloadPage from "./pages/Download";
+import Contents from "./pages/Contents";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +25,7 @@ const App = () => (
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/content/:id" element={<ContentPreview />} />
           <Route path="/download/:id" element={<DownloadPage />} />
+          <Route path="/contents" element={<Contents />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
