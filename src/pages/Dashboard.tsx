@@ -376,6 +376,7 @@ const Dashboard = () => {
               className="gap-2"
               onClick={handleScrapeTrends}
               disabled={isScraping}
+              data-onboarding="scrape-button"
             >
               {isScraping ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -442,16 +443,17 @@ const Dashboard = () => {
         </div>
 
         {/* Trends Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {filteredTrends.map((trend) => (
-            <TrendCard
-              key={trend.id}
-              trend={trend}
-              onGenerateContent={handleGenerateContent}
-              onViewDetails={handleViewDetails}
-              isSaved={savedTrendIds.has(trend.id)}
-              onToggleSave={handleToggleSave}
-            />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-onboarding="trends-grid">
+          {filteredTrends.map((trend, index) => (
+            <div key={trend.id} data-onboarding={index === 0 ? "trend-card" : undefined}>
+              <TrendCard
+                trend={trend}
+                onGenerateContent={handleGenerateContent}
+                onViewDetails={handleViewDetails}
+                isSaved={savedTrendIds.has(trend.id)}
+                onToggleSave={handleToggleSave}
+              />
+            </div>
           ))}
         </div>
 

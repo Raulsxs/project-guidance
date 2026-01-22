@@ -102,7 +102,7 @@ const StatsCards = ({ trendsCount = 0 }: StatsCardsProps) => {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-onboarding="stats-cards">
       {stats.map((stat, index) => (
         <Card key={index} className="shadow-card border-border/50">
           <CardContent className="p-5">
