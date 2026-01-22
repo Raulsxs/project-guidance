@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,14 +17,21 @@ import {
   Smartphone, 
   Layers, 
   Sparkles,
-  Loader2
+  Loader2,
+  Newspaper,
+  Quote,
+  Lightbulb,
+  GraduationCap,
+  HelpCircle,
+  Wand2
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface GenerateContentModalProps {
   trend: Trend | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onGenerate: (trendId: string, format: string) => void;
+  onGenerate: (trendId: string, format: string, contentStyle: string) => void;
   isGenerating: boolean;
 }
 
@@ -52,6 +59,79 @@ const formats = [
   },
 ];
 
+const contentStyles = [
+  {
+    id: "news",
+    name: "Notícia",
+    description: "Informativo sobre a tendência",
+    icon: Newspaper,
+    example: "Nova regulamentação da ANS entra em vigor...",
+    color: "bg-blue-500",
+  },
+  {
+    id: "quote",
+    name: "Frase",
+    description: "Motivacional ou reflexiva, sem CTA",
+    icon: Quote,
+    example: "Liderança em saúde é sobre pessoas",
+    color: "bg-purple-500",
+  },
+  {
+    id: "tip",
+    name: "Dica Rápida",
+    description: "Conselho prático e direto",
+    icon: Lightbulb,
+    example: "3 formas de reduzir custos operacionais",
+    color: "bg-amber-500",
+  },
+  {
+    id: "educational",
+    name: "Educativo",
+    description: "Explicação simples de conceito",
+    icon: GraduationCap,
+    example: "O que é acreditação hospitalar?",
+    color: "bg-emerald-500",
+  },
+  {
+    id: "curiosity",
+    name: "Curiosidade",
+    description: "Fato interessante para engajar",
+    icon: HelpCircle,
+    example: "Você sabia que 70% dos hospitais...",
+    color: "bg-rose-500",
+  },
+];
+
+// Map trend themes to suggested content styles
+const getSuggestedStyle = (theme: string, title: string): string => {
+  const titleLower = title.toLowerCase();
+  
+  // Check for patterns that suggest specific styles
+  if (titleLower.includes("dica") || titleLower.includes("como") || titleLower.includes("formas de")) {
+    return "tip";
+  }
+  if (titleLower.includes("o que é") || titleLower.includes("entenda") || titleLower.includes("guia")) {
+    return "educational";
+  }
+  if (titleLower.includes("você sabia") || titleLower.includes("curiosidade") || titleLower.includes("%")) {
+    return "curiosity";
+  }
+  if (titleLower.includes("frase") || titleLower.includes("reflexão") || titleLower.includes("inspiração")) {
+    return "quote";
+  }
+  
+  // Default based on theme
+  const themeMap: Record<string, string> = {
+    "Gestão": "tip",
+    "Tecnologia": "news",
+    "Legislação": "news",
+    "Inovação": "curiosity",
+    "Qualidade": "educational",
+  };
+  
+  return themeMap[theme] || "news";
+};
+
 const GenerateContentModal = ({
   trend,
   open,
@@ -60,22 +140,33 @@ const GenerateContentModal = ({
   isGenerating,
 }: GenerateContentModalProps) => {
   const [selectedFormat, setSelectedFormat] = useState("carousel");
+  const [selectedStyle, setSelectedStyle] = useState("news");
+  const [suggestedStyle, setSuggestedStyle] = useState<string | null>(null);
+
+  // When trend changes, suggest a style
+  useEffect(() => {
+    if (trend) {
+      const suggested = getSuggestedStyle(trend.theme, trend.title);
+      setSuggestedStyle(suggested);
+      setSelectedStyle(suggested);
+    }
+  }, [trend]);
 
   const handleGenerate = () => {
     if (trend) {
-      onGenerate(trend.id, selectedFormat);
+      onGenerate(trend.id, selectedFormat, selectedStyle);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-heading text-xl">
             Gerar Conteúdo
           </DialogTitle>
           <DialogDescription>
-            Escolha o formato do conteúdo. As imagens serão geradas automaticamente com IA.
+            A IA irá criar o conteúdo no estilo e formato escolhidos.
           </DialogDescription>
         </DialogHeader>
 
@@ -90,44 +181,102 @@ const GenerateContentModal = ({
           </div>
         )}
 
-        <div className="space-y-4">
-          <Label className="text-sm font-medium">Formato do Conteúdo</Label>
-          <RadioGroup
-            value={selectedFormat}
-            onValueChange={setSelectedFormat}
-            className="grid gap-3"
-          >
-            {formats.map((format) => (
-              <Label
-                key={format.id}
-                htmlFor={format.id}
-                className={cn(
-                  "flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all",
-                  selectedFormat === format.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                )}
-              >
-                <RadioGroupItem value={format.id} id={format.id} className="sr-only" />
-                <div className={cn(
-                  "w-12 h-12 rounded-lg flex items-center justify-center",
-                  selectedFormat === format.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                )}>
-                  <format.icon className="w-6 h-6" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-foreground">{format.name}</p>
-                  <p className="text-sm text-muted-foreground">{format.description}</p>
-                </div>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {format.dimensions}
+        <div className="space-y-6">
+          {/* Content Style Selection */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Estilo do Conteúdo</Label>
+              <Wand2 className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <RadioGroup
+              value={selectedStyle}
+              onValueChange={setSelectedStyle}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+            >
+              {contentStyles.map((style) => (
+                <Label
+                  key={style.id}
+                  htmlFor={`style-${style.id}`}
+                  className={cn(
+                    "flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all",
+                    selectedStyle === style.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50"
+                  )}
+                >
+                  <RadioGroupItem value={style.id} id={`style-${style.id}`} className="sr-only" />
+                  <div className={cn(
+                    "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
+                    selectedStyle === style.id ? style.color + " text-white" : "bg-muted text-muted-foreground"
+                  )}>
+                    <style.icon className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-foreground text-sm">{style.name}</p>
+                      {suggestedStyle === style.id && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          Sugerido
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{style.description}</p>
+                  </div>
+                </Label>
+              ))}
+            </RadioGroup>
+            
+            {/* Style example */}
+            <div className="bg-muted/30 rounded-lg p-3 border border-dashed border-border">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium">Exemplo:</span>{" "}
+                <span className="italic">
+                  "{contentStyles.find(s => s.id === selectedStyle)?.example}"
                 </span>
-              </Label>
-            ))}
-          </RadioGroup>
+              </p>
+            </div>
+          </div>
+
+          {/* Format Selection */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Formato do Conteúdo</Label>
+            <RadioGroup
+              value={selectedFormat}
+              onValueChange={setSelectedFormat}
+              className="grid gap-2"
+            >
+              {formats.map((format) => (
+                <Label
+                  key={format.id}
+                  htmlFor={format.id}
+                  className={cn(
+                    "flex items-center gap-4 p-3 rounded-lg border-2 cursor-pointer transition-all",
+                    selectedFormat === format.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50"
+                  )}
+                >
+                  <RadioGroupItem value={format.id} id={format.id} className="sr-only" />
+                  <div className={cn(
+                    "w-10 h-10 rounded-lg flex items-center justify-center",
+                    selectedFormat === format.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                  )}>
+                    <format.icon className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-foreground text-sm">{format.name}</p>
+                    <p className="text-xs text-muted-foreground">{format.description}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {format.dimensions}
+                  </span>
+                </Label>
+              ))}
+            </RadioGroup>
+          </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-0 mt-4">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
@@ -139,12 +288,12 @@ const GenerateContentModal = ({
             {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Gerando conteúdo e imagens...
+                Gerando conteúdo...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Gerar Conteúdo com Imagens
+                Gerar Conteúdo
               </>
             )}
           </Button>

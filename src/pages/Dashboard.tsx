@@ -282,7 +282,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleGenerate = async (trendId: string, format: string) => {
+  const handleGenerate = async (trendId: string, format: string, contentStyle: string) => {
     if (!selectedTrend) return;
     
     setIsGenerating(true);
@@ -297,6 +297,7 @@ const Dashboard = () => {
             keywords: selectedTrend.keywords,
           },
           contentType: format,
+          contentStyle: contentStyle,
         },
       });
 
