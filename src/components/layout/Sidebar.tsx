@@ -36,7 +36,7 @@ const Sidebar = () => {
   };
 
   return (
-    <aside className="w-64 h-screen gradient-sidebar border-r border-sidebar-border flex flex-col">
+    <aside className="w-64 min-h-screen sticky top-0 h-screen gradient-sidebar border-r border-sidebar-border flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
         <Link to="/dashboard" className="flex items-center gap-3">
