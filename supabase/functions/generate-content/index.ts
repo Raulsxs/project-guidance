@@ -14,9 +14,40 @@ interface GenerateContentRequest {
     keywords: string[];
   };
   contentType: "post" | "story" | "carousel";
+  contentStyle?: "news" | "quote" | "tip" | "educational" | "curiosity";
   tone?: string;
   targetAudience?: string;
+  generateImages?: boolean;
 }
+
+// Style-specific prompts
+const stylePrompts: Record<string, { systemAddition: string; userGuide: string; slideGuide: string }> = {
+  news: {
+    systemAddition: "Crie conteúdo informativo e profissional sobre a notícia/tendência.",
+    userGuide: "Abordagem: informativa, atualização do setor. Inclua dados e contexto relevante.",
+    slideGuide: "Estrutura: abertura impactante, desenvolvimento com dados, conclusão com insight. Pode incluir CTA se relevante."
+  },
+  quote: {
+    systemAddition: "Crie uma frase inspiracional ou reflexiva. NÃO inclua CTAs como 'Saiba mais' ou 'Clique no link'. O conteúdo deve ser autossuficiente.",
+    userGuide: "Abordagem: motivacional, reflexiva, inspiradora. Frase de impacto que ressoe com o público. SEM CALL-TO-ACTION.",
+    slideGuide: "Estrutura: frase principal poderosa, pode ter complemento reflexivo. NÃO use 'Saiba mais', 'Leia mais', 'Clique'. Slide final deve ser a assinatura/marca, não um CTA."
+  },
+  tip: {
+    systemAddition: "Crie dicas práticas e acionáveis. Seja direto e útil.",
+    userGuide: "Abordagem: prática, acionável, direta. Dicas que podem ser aplicadas imediatamente.",
+    slideGuide: "Estrutura: problema/contexto rápido, dicas numeradas ou em bullets, fechamento motivador. Seja conciso."
+  },
+  educational: {
+    systemAddition: "Explique conceitos de forma didática e acessível. Use linguagem simples.",
+    userGuide: "Abordagem: didática, explicativa, acessível. Ensine algo de forma clara.",
+    slideGuide: "Estrutura: o que é, por que importa, como funciona, exemplo prático. Use analogias simples."
+  },
+  curiosity: {
+    systemAddition: "Crie conteúdo que desperte curiosidade e engaje. Use dados surpreendentes.",
+    userGuide: "Abordagem: surpreendente, engajadora. Use estatísticas interessantes e fatos pouco conhecidos.",
+    slideGuide: "Estrutura: gancho surpreendente ('Você sabia?'), revelação do dado, contexto, reflexão final."
+  }
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -52,47 +83,65 @@ serve(async (req) => {
 
     console.log("Authenticated user:", claimsData.claims.sub);
 
-    const { trend, contentType, tone = "profissional e engajador", targetAudience = "gestores de saúde", generateImages = true } = await req.json() as GenerateContentRequest & { generateImages?: boolean };
+    const { 
+      trend, 
+      contentType, 
+      contentStyle = "news",
+      tone = "profissional e engajador", 
+      targetAudience = "gestores de saúde", 
+      generateImages = true 
+    } = await req.json() as GenerateContentRequest;
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
+    const styleConfig = stylePrompts[contentStyle] || stylePrompts.news;
     const slideCount = contentType === "carousel" ? 5 : contentType === "story" ? 3 : 1;
     
-    const systemPrompt = `Você é um especialista em marketing digital para o setor de saúde. Seu objetivo é criar conteúdo engajador para Instagram focado em gestão em saúde.
+    const systemPrompt = `Você é um especialista em marketing digital para o setor de saúde. 
+${styleConfig.systemAddition}
 
 Regras:
 - Use linguagem ${tone}
 - Público-alvo: ${targetAudience}
-- Inclua emojis relevantes
+- Inclua emojis relevantes (moderadamente)
 - Crie hashtags estratégicas
 - Mantenha textos concisos e impactantes
-- Foque em agregar valor e gerar engajamento`;
+- ${contentStyle === "quote" ? "NÃO inclua CTAs ou links. A frase deve ser autossuficiente." : "Foque em agregar valor e gerar engajamento"}`;
 
-    const userPrompt = `Crie um ${contentType === "post" ? "post para feed" : contentType === "story" ? "story" : "carrossel com ${slideCount} slides"} do Instagram sobre:
+    const userPrompt = `Crie um ${contentType === "post" ? "post para feed" : contentType === "story" ? "story" : "carrossel com ${slideCount} slides"} do Instagram.
 
+ESTILO: ${contentStyle.toUpperCase()}
+${styleConfig.userGuide}
+
+Baseado em:
 Título: ${trend.title}
 Descrição: ${trend.description}
 Tema: ${trend.theme}
 Palavras-chave: ${trend.keywords?.join(", ") || "não especificadas"}
 
+${styleConfig.slideGuide}
+
 Retorne exatamente neste formato JSON:
 {
   "title": "título curto e chamativo",
-  "caption": "legenda completa com emojis e call-to-action",
+  "caption": "legenda completa com emojis${contentStyle === "quote" ? "" : " e call-to-action se apropriado"}",
   "hashtags": ["hashtag1", "hashtag2", "...até 15 hashtags"],
   "slides": [
     {
-      "headline": "texto principal do slide",
-      "body": "texto de apoio (máximo 2 linhas)",
+      "headline": "texto principal do slide (${contentStyle === "quote" ? "a frase inspiracional" : "chamada principal"})",
+      "body": "texto de apoio (máximo 2 linhas)${contentStyle === "quote" ? " - pode ser vazio para frases" : ""}",
       "imagePrompt": "descrição detalhada em inglês para gerar imagem profissional relacionada ao tema"
     }
   ]
 }
 
-Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} slides` : contentType === "story" ? `story, crie ${slideCount} slides verticais` : "post, crie 1 slide"}.`;
+Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} slides` : contentType === "story" ? `story, crie ${slideCount} slides verticais` : "post, crie 1 slide"}.
+${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pode ser a assinatura da marca ou uma frase de fechamento." : ""}`;
+
+    console.log(`Generating ${contentStyle} content for ${contentType}...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -153,6 +202,16 @@ Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} sl
           try {
             console.log(`Generating image for slide ${index + 1}...`);
             
+            // Adapt image style based on content style
+            let imageStyleGuide = "Professional healthcare marketing image for Instagram.";
+            if (contentStyle === "quote") {
+              imageStyleGuide = "Inspirational, minimalist background image. Soft gradients or abstract patterns. Premium aesthetic.";
+            } else if (contentStyle === "tip") {
+              imageStyleGuide = "Clean, organized, professional image. Icons or visual metaphors for tips.";
+            } else if (contentStyle === "curiosity") {
+              imageStyleGuide = "Eye-catching, intriguing image that sparks curiosity. Bold colors.";
+            }
+            
             const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
               method: "POST",
               headers: {
@@ -160,11 +219,11 @@ Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} sl
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "google/gemini-2.5-flash-image-preview",
+                model: "google/gemini-2.5-flash-image",
                 messages: [
                   {
                     role: "user",
-                    content: `Professional healthcare marketing image for Instagram. Style: Editorial photography, premium magazine quality. ${slide.imagePrompt}. Clean, modern, high-end aesthetic. No text overlays.`,
+                    content: `${imageStyleGuide} Style: Editorial photography, premium magazine quality. ${slide.imagePrompt}. Clean, modern, high-end aesthetic. No text overlays.`,
                   },
                 ],
                 modalities: ["image", "text"],
@@ -200,6 +259,7 @@ Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} sl
       content: {
         ...generatedContent,
         contentType,
+        contentStyle,
         trendTitle: trend.title,
       }
     }), {
