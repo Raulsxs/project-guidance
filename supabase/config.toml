@@ -14,3 +14,15 @@ verify_jwt = false
 
 [functions.search-images]
 verify_jwt = false
+
+[functions.create-visual-brief]
+verify_jwt = false
+
+[functions.build-image-prompts]
+verify_jwt = false
+
+[functions.generate-image-variations]
+verify_jwt = false
+
+[functions.rank-and-select]
+verify_jwt = false

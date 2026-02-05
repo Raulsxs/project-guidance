@@ -13,6 +13,10 @@ import DownloadPage from "./pages/Download";
 import Contents from "./pages/Contents";
 import Profile from "./pages/Profile";
 import CustomTemplates from "./pages/CustomTemplates";
+import Studio from "./pages/Studio";
+import StudioBrands from "./pages/StudioBrands";
+import StudioProject from "./pages/StudioProject";
+import StudioPostEditor from "./pages/StudioPostEditor";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +38,10 @@ const App = () => (
             <Route path="/contents" element={<Contents />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/templates" element={<CustomTemplates />} />
+            <Route path="/studio" element={<Studio />} />
+            <Route path="/studio/brands" element={<StudioBrands />} />
+            <Route path="/studio/project/:id" element={<StudioProject />} />
+            <Route path="/studio/post/:id" element={<StudioPostEditor />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

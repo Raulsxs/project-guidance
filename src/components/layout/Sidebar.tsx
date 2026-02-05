@@ -10,12 +10,14 @@ import {
   Palette,
   LogOut,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OnboardingTrigger from "@/components/onboarding/OnboardingTrigger";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+  { icon: Wand2, label: "Studio IA", href: "/studio" },
   { icon: FileText, label: "Meus Conteúdos", href: "/contents" },
   { icon: User, label: "Meu Perfil", href: "/profile" },
   { icon: Palette, label: "Templates", href: "/templates" },
