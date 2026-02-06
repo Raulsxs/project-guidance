@@ -10,9 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useBrands, useCreateBrand, useUpdateBrand, useDeleteBrand } from "@/hooks/useStudio";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBrands, useCreateBrand, useUpdateBrand, useDeleteBrand, useBrandExamples } from "@/hooks/useStudio";
 import { VISUAL_TONES } from "@/types/studio";
-import { Plus, ArrowLeft, Palette, Trash2, Edit, X } from "lucide-react";
+import { Plus, ArrowLeft, Palette, Trash2, Edit, X, Image } from "lucide-react";
+import BrandExamples from "@/components/studio/BrandExamples";
 
 export default function StudioBrands() {
   const navigate = useNavigate();
@@ -115,123 +117,138 @@ export default function StudioBrands() {
                 Nova Marca
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editingBrand ? "Editar Marca" : "Criar Marca"}</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Nome da Marca *</Label>
-                  <Input 
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Ex: Minha Empresa"
-                  />
-                </div>
+              
+              <Tabs defaultValue="info" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="info">Informações</TabsTrigger>
+                  <TabsTrigger value="examples" disabled={!editingBrand}>Exemplos</TabsTrigger>
+                </TabsList>
                 
-                <div className="space-y-2">
-                  <Label>Tom Visual</Label>
-                  <Select 
-                    value={formData.visual_tone}
-                    onValueChange={(value) => setFormData({ ...formData, visual_tone: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VISUAL_TONES.map((tone) => (
-                        <SelectItem key={tone.value} value={tone.value}>
-                          {tone.label}
-                        </SelectItem>
+                <TabsContent value="info" className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Nome da Marca *</Label>
+                    <Input 
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="Ex: Minha Empresa"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Tom Visual</Label>
+                    <Select 
+                      value={formData.visual_tone}
+                      onValueChange={(value) => setFormData({ ...formData, visual_tone: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VISUAL_TONES.map((tone) => (
+                          <SelectItem key={tone.value} value={tone.value}>
+                            {tone.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Paleta de Cores</Label>
+                      {formData.palette.length < 6 && (
+                        <Button variant="ghost" size="sm" onClick={addColor}>
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {formData.palette.map((color, index) => (
+                        <div key={index} className="flex items-center gap-2 group">
+                          <input
+                            type="color"
+                            value={color}
+                            onChange={(e) => updatePaletteColor(index, e.target.value)}
+                            className="w-10 h-10 rounded-lg cursor-pointer border-2 border-border flex-shrink-0"
+                          />
+                          <Input
+                            value={color}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (/^#[0-9A-Fa-f]{0,6}$/.test(val) || val === "") {
+                                updatePaletteColor(index, val);
+                              }
+                            }}
+                            placeholder="#000000"
+                            className="font-mono text-sm w-28"
+                            maxLength={7}
+                          />
+                          {formData.palette.length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeColor(index)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
+                            >
+                              <X className="w-4 h-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Paleta de Cores</Label>
-                    {formData.palette.length < 6 && (
-                      <Button variant="ghost" size="sm" onClick={addColor}>
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    )}
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    {formData.palette.map((color, index) => (
-                      <div key={index} className="flex items-center gap-2 group">
-                        <input
-                          type="color"
-                          value={color}
-                          onChange={(e) => updatePaletteColor(index, e.target.value)}
-                          className="w-10 h-10 rounded-lg cursor-pointer border-2 border-border flex-shrink-0"
-                        />
-                        <Input
-                          value={color}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (/^#[0-9A-Fa-f]{0,6}$/.test(val) || val === "") {
-                              updatePaletteColor(index, val);
-                            }
-                          }}
-                          placeholder="#000000"
-                          className="font-mono text-sm w-28"
-                          maxLength={7}
-                        />
-                        {formData.palette.length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeColor(index)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
-                          >
-                            <X className="w-4 h-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Fonte Títulos</Label>
+                      <Input 
+                        value={formData.fonts.headings}
+                        onChange={(e) => setFormData({ ...formData, fonts: { ...formData.fonts, headings: e.target.value } })}
+                        placeholder="Inter"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Fonte Corpo</Label>
+                      <Input 
+                        value={formData.fonts.body}
+                        onChange={(e) => setFormData({ ...formData, fonts: { ...formData.fonts, body: e.target.value } })}
+                        placeholder="Inter"
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
-                    <Label>Fonte Títulos</Label>
-                    <Input 
-                      value={formData.fonts.headings}
-                      onChange={(e) => setFormData({ ...formData, fonts: { ...formData.fonts, headings: e.target.value } })}
-                      placeholder="Inter"
+                    <Label>Regras Positivas (O que fazer)</Label>
+                    <Textarea 
+                      value={formData.do_rules}
+                      onChange={(e) => setFormData({ ...formData, do_rules: e.target.value })}
+                      placeholder="Ex: Usar cores vibrantes, incluir elementos geométricos, manter espaço para texto..."
+                      rows={3}
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label>Fonte Corpo</Label>
-                    <Input 
-                      value={formData.fonts.body}
-                      onChange={(e) => setFormData({ ...formData, fonts: { ...formData.fonts, body: e.target.value } })}
-                      placeholder="Inter"
+                    <Label>Regras Negativas (O que evitar)</Label>
+                    <Textarea 
+                      value={formData.dont_rules}
+                      onChange={(e) => setFormData({ ...formData, dont_rules: e.target.value })}
+                      placeholder="Ex: Evitar fundos muito escuros, não usar muitos elementos, evitar estilo cartoon..."
+                      rows={3}
                     />
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Regras Positivas (O que fazer)</Label>
-                  <Textarea 
-                    value={formData.do_rules}
-                    onChange={(e) => setFormData({ ...formData, do_rules: e.target.value })}
-                    placeholder="Ex: Usar cores vibrantes, incluir elementos geométricos, manter espaço para texto..."
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Regras Negativas (O que evitar)</Label>
-                  <Textarea 
-                    value={formData.dont_rules}
-                    onChange={(e) => setFormData({ ...formData, dont_rules: e.target.value })}
-                    placeholder="Ex: Evitar fundos muito escuros, não usar muitos elementos, evitar estilo cartoon..."
-                    rows={3}
-                  />
-                </div>
-              </div>
+                </TabsContent>
+                
+                <TabsContent value="examples" className="py-4">
+                  {editingBrand && (
+                    <BrandExamples brandId={editingBrand.id} brandName={editingBrand.name} />
+                  )}
+                </TabsContent>
+              </Tabs>
+              
               <DialogFooter>
                 <Button 
                   onClick={handleSave} 

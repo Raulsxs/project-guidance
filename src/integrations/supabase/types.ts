@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      brand_examples: {
+        Row: {
+          brand_id: string
+          content_type: string | null
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string
+          thumb_url: string | null
+        }
+        Insert: {
+          brand_id: string
+          content_type?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url: string
+          thumb_url?: string | null
+        }
+        Update: {
+          brand_id?: string
+          content_type?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string
+          thumb_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_examples_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       brands: {
         Row: {
           created_at: string

@@ -14,6 +14,16 @@ export interface Brand {
   updated_at: string;
 }
 
+export interface BrandExample {
+  id: string;
+  brand_id: string;
+  image_url: string;
+  thumb_url: string | null;
+  description: string | null;
+  content_type: string;
+  created_at: string;
+}
+
 export interface Project {
   id: string;
   brand_id: string;
