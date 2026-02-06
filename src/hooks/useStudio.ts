@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import type { Brand, Project, Post, Slide, VisualBrief, ImagePrompt, ImageGeneration } from '@/types/studio';
+import type { Brand, BrandExample, Project, Post, Slide, VisualBrief, ImagePrompt, ImageGeneration } from '@/types/studio';
 
 // ============ BRANDS ============
 export function useBrands() {
@@ -106,6 +106,67 @@ export function useDeleteBrand() {
     },
     onError: (error) => {
       toast.error('Erro ao excluir marca: ' + error.message);
+    }
+  });
+}
+
+// ============ BRAND EXAMPLES ============
+export function useBrandExamples(brandId: string) {
+  return useQuery({
+    queryKey: ['brand-examples', brandId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('brand_examples')
+        .select('*')
+        .eq('brand_id', brandId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data as BrandExample[];
+    },
+    enabled: !!brandId
+  });
+}
+
+export function useAddBrandExample() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (example: { brand_id: string; image_url: string; thumb_url?: string; description?: string; content_type?: string }) => {
+      const { data, error } = await supabase
+        .from('brand_examples')
+        .insert(example)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data as BrandExample;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['brand-examples', variables.brand_id] });
+      toast.success('Exemplo adicionado!');
+    },
+    onError: (error) => {
+      toast.error('Erro ao adicionar exemplo: ' + error.message);
+    }
+  });
+}
+
+export function useDeleteBrandExample() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ id, brandId }: { id: string; brandId: string }) => {
+      const { error } = await supabase.from('brand_examples').delete().eq('id', id);
+      if (error) throw error;
+      return brandId;
+    },
+    onSuccess: (brandId) => {
+      queryClient.invalidateQueries({ queryKey: ['brand-examples', brandId] });
+      toast.success('Exemplo removido!');
+    },
+    onError: (error) => {
+      toast.error('Erro ao remover exemplo: ' + error.message);
     }
   });
 }

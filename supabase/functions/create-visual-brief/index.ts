@@ -65,8 +65,25 @@ serve(async (req) => {
     const project = post.projects;
     const brand = project.brands;
 
+    // Fetch brand examples for reference
+    const { data: brandExamples } = await supabase
+      .from("brand_examples")
+      .select("image_url, description, content_type")
+      .eq("brand_id", brand.id)
+      .limit(5);
+
     console.log(`[create-visual-brief] Found slide ${slide.slide_index} for post type: ${post.content_type}`);
+    console.log(`[create-visual-brief] Found ${brandExamples?.length || 0} brand examples`);
     const isCoverSlide = slide.slide_index === 0;
+
+    // Build examples context if available
+    let examplesContext = "";
+    if (brandExamples && brandExamples.length > 0) {
+      examplesContext = `\n\nEXEMPLOS DE REFERÊNCIA DA MARCA (use como inspiração visual):
+${brandExamples.map((ex, i) => `${i + 1}. ${ex.description || 'Exemplo de conteúdo'} (tipo: ${ex.content_type})`).join('\n')}
+
+Analise esses exemplos para manter consistência com o estilo visual já estabelecido pela marca.`;
+    }
 
     // Build AI prompt for visual brief generation
     const systemPrompt = `Você é um Diretor de Arte especializado em conteúdo visual para redes sociais.
@@ -104,7 +121,7 @@ ${post.raw_post_text}
 TEXTO DESTE SLIDE:
 ${slide.slide_text || 'Sem texto específico'}
 
-SLIDE: ${slide.slide_index + 1} ${isCoverSlide ? '(CAPA)' : ''}`;
+SLIDE: ${slide.slide_index + 1} ${isCoverSlide ? '(CAPA)' : ''}${examplesContext}`;
 
     console.log("[create-visual-brief] Calling Lovable AI for brief generation...");
 
