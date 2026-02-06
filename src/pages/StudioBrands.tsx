@@ -157,22 +157,36 @@ export default function StudioBrands() {
                       </Button>
                     )}
                   </div>
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="space-y-2">
                     {formData.palette.map((color, index) => (
-                      <div key={index} className="relative group">
+                      <div key={index} className="flex items-center gap-2 group">
                         <input
                           type="color"
                           value={color}
                           onChange={(e) => updatePaletteColor(index, e.target.value)}
-                          className="w-10 h-10 rounded-lg cursor-pointer border-2 border-border"
+                          className="w-10 h-10 rounded-lg cursor-pointer border-2 border-border flex-shrink-0"
+                        />
+                        <Input
+                          value={color}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (/^#[0-9A-Fa-f]{0,6}$/.test(val) || val === "") {
+                              updatePaletteColor(index, val);
+                            }
+                          }}
+                          placeholder="#000000"
+                          className="font-mono text-sm w-28"
+                          maxLength={7}
                         />
                         {formData.palette.length > 1 && (
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => removeColor(index)}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
                           >
-                            <X className="w-3 h-3 mx-auto" />
-                          </button>
+                            <X className="w-4 h-4 text-destructive" />
+                          </Button>
                         )}
                       </div>
                     ))}
@@ -266,13 +280,17 @@ export default function StudioBrands() {
                 </CardHeader>
                 <CardContent>
                   {/* Palette Preview */}
-                  <div className="flex gap-1 mb-3">
+                  <div className="flex gap-2 mb-3 flex-wrap">
                     {(brand.palette as string[] || []).slice(0, 5).map((color, i) => (
-                      <div 
-                        key={i} 
-                        className="w-6 h-6 rounded-full border border-border"
-                        style={{ backgroundColor: color }}
-                      />
+                      <div key={i} className="flex flex-col items-center gap-1">
+                        <div 
+                          className="w-6 h-6 rounded-full border border-border"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          {color}
+                        </span>
+                      </div>
                     ))}
                   </div>
                   
