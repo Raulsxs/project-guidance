@@ -15,6 +15,7 @@ interface GenerateContentRequest {
   };
   contentType: "post" | "story" | "carousel";
   contentStyle?: "news" | "quote" | "tip" | "educational" | "curiosity";
+  brandId?: string | null;
   tone?: string;
   targetAudience?: string;
   generateImages?: boolean;
@@ -49,13 +50,54 @@ const stylePrompts: Record<string, { systemAddition: string; userGuide: string; 
   }
 };
 
+interface BrandData {
+  name: string;
+  palette: unknown;
+  visual_tone: string | null;
+  do_rules: string | null;
+  dont_rules: string | null;
+  fonts: unknown;
+  brand_examples: { image_url: string; description: string | null; content_type: string | null }[];
+}
+
+function buildBrandContext(brand: BrandData): string {
+  const parts: string[] = [];
+  parts.push(`\n\nIDENTIDADE VISUAL DA MARCA "${brand.name}":`);
+  
+  if (brand.visual_tone) {
+    parts.push(`- Tom visual: ${brand.visual_tone}`);
+  }
+  if (brand.palette && Array.isArray(brand.palette) && brand.palette.length > 0) {
+    const colors = brand.palette.map((c: { hex?: string; name?: string }) => `${c.name || ''} ${c.hex || ''}`).join(', ');
+    parts.push(`- Paleta de cores: ${colors}`);
+  }
+  if (brand.do_rules) {
+    parts.push(`- FAZER: ${brand.do_rules}`);
+  }
+  if (brand.dont_rules) {
+    parts.push(`- NÃO FAZER: ${brand.dont_rules}`);
+  }
+  if (brand.brand_examples && brand.brand_examples.length > 0) {
+    const exDescriptions = brand.brand_examples
+      .filter(e => e.description)
+      .map(e => `  • ${e.description}`)
+      .join('\n');
+    if (exDescriptions) {
+      parts.push(`- Exemplos de referência:\n${exDescriptions}`);
+    }
+  }
+  
+  parts.push(`\nIMPORTANTE: Os imagePrompts devem refletir o tom visual "${brand.visual_tone || 'clean'}" e usar as cores da paleta da marca como referência.`);
+  
+  return parts.join('\n');
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Validate JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -87,6 +129,7 @@ serve(async (req) => {
       trend, 
       contentType, 
       contentStyle = "news",
+      brandId = null,
       tone = "profissional e engajador", 
       targetAudience = "gestores de saúde", 
       generateImages = true 
@@ -95,6 +138,33 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
+    }
+
+    // Fetch brand data if brandId is provided
+    let brandContext = "";
+    let brandData: BrandData | null = null;
+    if (brandId) {
+      console.log("Fetching brand data for:", brandId);
+      const { data: brand, error: brandError } = await supabase
+        .from("brands")
+        .select("name, palette, visual_tone, do_rules, dont_rules, fonts")
+        .eq("id", brandId)
+        .single();
+      
+      if (brandError) {
+        console.error("Error fetching brand:", brandError);
+      } else if (brand) {
+        // Fetch brand examples
+        const { data: examples } = await supabase
+          .from("brand_examples")
+          .select("image_url, description, content_type")
+          .eq("brand_id", brandId)
+          .limit(5);
+        
+        brandData = { ...brand, brand_examples: examples || [] };
+        brandContext = buildBrandContext(brandData);
+        console.log("Brand context built for:", brand.name);
+      }
     }
 
     const styleConfig = stylePrompts[contentStyle] || stylePrompts.news;
@@ -109,7 +179,8 @@ Regras:
 - Inclua emojis relevantes (moderadamente)
 - Crie hashtags estratégicas
 - Mantenha textos concisos e impactantes
-- ${contentStyle === "quote" ? "NÃO inclua CTAs ou links. A frase deve ser autossuficiente." : "Foque em agregar valor e gerar engajamento"}`;
+- ${contentStyle === "quote" ? "NÃO inclua CTAs ou links. A frase deve ser autossuficiente." : "Foque em agregar valor e gerar engajamento"}
+${brandContext}`;
 
     const userPrompt = `Crie um ${contentType === "post" ? "post para feed" : contentType === "story" ? "story" : "carrossel com ${slideCount} slides"} do Instagram.
 
@@ -133,7 +204,7 @@ Retorne exatamente neste formato JSON:
     {
       "headline": "texto principal do slide (${contentStyle === "quote" ? "a frase inspiracional" : "chamada principal"})",
       "body": "texto de apoio (máximo 2 linhas)${contentStyle === "quote" ? " - pode ser vazio para frases" : ""}",
-      "imagePrompt": "descrição detalhada em inglês para gerar imagem profissional relacionada ao tema"
+      "imagePrompt": "descrição detalhada em inglês para gerar imagem profissional relacionada ao tema${brandData ? '. MUST reflect the brand visual identity: ' + (brandData.visual_tone || 'clean') + ' style' : ''}"
     }
   ]
 }
@@ -141,7 +212,7 @@ Retorne exatamente neste formato JSON:
 Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} slides` : contentType === "story" ? `story, crie ${slideCount} slides verticais` : "post, crie 1 slide"}.
 ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pode ser a assinatura da marca ou uma frase de fechamento." : ""}`;
 
-    console.log(`Generating ${contentStyle} content for ${contentType}...`);
+    console.log(`Generating ${contentStyle} content for ${contentType}${brandId ? ` with brand` : ''}...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -191,6 +262,13 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
 
     const generatedContent = JSON.parse(jsonMatch[0]);
 
+    // Build brand-aware image style guide
+    let brandImageStyle = "";
+    if (brandData) {
+      const palette = Array.isArray(brandData.palette) ? brandData.palette.map((c: { hex?: string }) => c.hex).filter(Boolean).join(', ') : '';
+      brandImageStyle = `Brand identity: ${brandData.visual_tone || 'clean'} style. Color palette: ${palette || 'not specified'}. ${brandData.do_rules ? 'Visual rules: ' + brandData.do_rules + '.' : ''}`;
+    }
+
     // Generate images for all slides if enabled
     if (generateImages && generatedContent.slides && generatedContent.slides.length > 0) {
       console.log(`Generating images for ${generatedContent.slides.length} slides...`);
@@ -202,7 +280,6 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
           try {
             console.log(`Generating image for slide ${index + 1}...`);
             
-            // Adapt image style based on content style
             let imageStyleGuide = "Professional healthcare marketing image for Instagram.";
             if (contentStyle === "quote") {
               imageStyleGuide = "Inspirational, minimalist background image. Soft gradients or abstract patterns. Premium aesthetic.";
@@ -210,6 +287,11 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
               imageStyleGuide = "Clean, organized, professional image. Icons or visual metaphors for tips.";
             } else if (contentStyle === "curiosity") {
               imageStyleGuide = "Eye-catching, intriguing image that sparks curiosity. Bold colors.";
+            }
+
+            // Append brand style if available
+            if (brandImageStyle) {
+              imageStyleGuide = `${brandImageStyle} ${imageStyleGuide}`;
             }
             
             const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
