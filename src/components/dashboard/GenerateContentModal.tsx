@@ -23,15 +23,18 @@ import {
   Lightbulb,
   GraduationCap,
   HelpCircle,
-  Wand2
+  Wand2,
+  Palette
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { supabase } from "@/integrations/supabase/client";
 
 interface GenerateContentModalProps {
   trend: Trend | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onGenerate: (trendId: string, format: string, contentStyle: string) => void;
+  onGenerate: (trendId: string, format: string, contentStyle: string, brandId: string | null) => void;
   isGenerating: boolean;
 }
 
@@ -102,11 +105,9 @@ const contentStyles = [
   },
 ];
 
-// Map trend themes to suggested content styles
 const getSuggestedStyle = (theme: string, title: string): string => {
   const titleLower = title.toLowerCase();
   
-  // Check for patterns that suggest specific styles
   if (titleLower.includes("dica") || titleLower.includes("como") || titleLower.includes("formas de")) {
     return "tip";
   }
@@ -120,7 +121,6 @@ const getSuggestedStyle = (theme: string, title: string): string => {
     return "quote";
   }
   
-  // Default based on theme
   const themeMap: Record<string, string> = {
     "Gestão": "tip",
     "Tecnologia": "news",
@@ -132,6 +132,13 @@ const getSuggestedStyle = (theme: string, title: string): string => {
   return themeMap[theme] || "news";
 };
 
+interface BrandOption {
+  id: string;
+  name: string;
+  visual_tone: string | null;
+  palette: unknown;
+}
+
 const GenerateContentModal = ({
   trend,
   open,
@@ -142,8 +149,33 @@ const GenerateContentModal = ({
   const [selectedFormat, setSelectedFormat] = useState("carousel");
   const [selectedStyle, setSelectedStyle] = useState("news");
   const [suggestedStyle, setSuggestedStyle] = useState<string | null>(null);
+  const [selectedBrand, setSelectedBrand] = useState<string>("ai");
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [loadingBrands, setLoadingBrands] = useState(false);
 
-  // When trend changes, suggest a style
+  // Fetch user brands when modal opens
+  useEffect(() => {
+    if (open) {
+      const fetchBrands = async () => {
+        setLoadingBrands(true);
+        try {
+          const { data, error } = await supabase
+            .from("brands")
+            .select("id, name, visual_tone, palette")
+            .order("name");
+          if (!error && data) {
+            setBrands(data);
+          }
+        } catch (e) {
+          console.error("Error fetching brands:", e);
+        } finally {
+          setLoadingBrands(false);
+        }
+      };
+      fetchBrands();
+    }
+  }, [open]);
+
   useEffect(() => {
     if (trend) {
       const suggested = getSuggestedStyle(trend.theme, trend.title);
@@ -154,7 +186,7 @@ const GenerateContentModal = ({
 
   const handleGenerate = () => {
     if (trend) {
-      onGenerate(trend.id, selectedFormat, selectedStyle);
+      onGenerate(trend.id, selectedFormat, selectedStyle, selectedBrand === "ai" ? null : selectedBrand);
     }
   };
 
@@ -182,6 +214,45 @@ const GenerateContentModal = ({
         )}
 
         <div className="space-y-6">
+          {/* Brand Selection */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Identidade Visual</Label>
+              <Palette className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione uma marca" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ai">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span>Deixar a IA decidir</span>
+                  </div>
+                </SelectItem>
+                {brands.map((brand) => (
+                  <SelectItem key={brand.id} value={brand.id}>
+                    <div className="flex items-center gap-2">
+                      <Palette className="w-4 h-4 text-muted-foreground" />
+                      <span>{brand.name}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!loadingBrands && brands.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Nenhuma marca cadastrada. As imagens serão geradas com estilo padrão da IA.
+              </p>
+            )}
+            {selectedBrand !== "ai" && (
+              <p className="text-xs text-muted-foreground">
+                As imagens seguirão a paleta, tom visual e regras da marca selecionada.
+              </p>
+            )}
+          </div>
+
           {/* Content Style Selection */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -226,7 +297,6 @@ const GenerateContentModal = ({
               ))}
             </RadioGroup>
             
-            {/* Style example */}
             <div className="bg-muted/30 rounded-lg p-3 border border-dashed border-border">
               <p className="text-xs text-muted-foreground">
                 <span className="font-medium">Exemplo:</span>{" "}
