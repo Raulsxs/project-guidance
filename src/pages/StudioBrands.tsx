@@ -13,8 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBrands, useCreateBrand, useUpdateBrand, useDeleteBrand, useBrandExamples } from "@/hooks/useStudio";
 import { VISUAL_TONES } from "@/types/studio";
-import { Plus, ArrowLeft, Palette, Trash2, Edit, X, Image } from "lucide-react";
+import { Plus, ArrowLeft, Palette, Trash2, Edit, X, Image, Sparkles, Loader2 } from "lucide-react";
 import BrandExamples from "@/components/studio/BrandExamples";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export default function StudioBrands() {
   const navigate = useNavigate();
@@ -25,6 +27,7 @@ export default function StudioBrands() {
   
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState<any>(null);
+  const [analyzingBrandId, setAnalyzingBrandId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     visual_tone: "clean",
@@ -75,6 +78,26 @@ export default function StudioBrands() {
   const handleDelete = async (id: string) => {
     if (confirm("Tem certeza que deseja excluir esta marca? Todos os projetos associados serão excluídos.")) {
       await deleteBrand.mutateAsync(id);
+    }
+  };
+
+  const handleAnalyzeStyle = async (brandId: string) => {
+    setAnalyzingBrandId(brandId);
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze-brand-examples", {
+        body: { brandId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success("Style Guide gerado com sucesso!", {
+        description: `Preset: ${data.styleGuide?.style_preset || "detectado"}`,
+      });
+      // Refresh brands list
+      window.location.reload();
+    } catch (err: any) {
+      toast.error("Erro ao analisar estilo: " + (err.message || "Tente novamente"));
+    } finally {
+      setAnalyzingBrandId(null);
     }
   };
 
@@ -286,6 +309,19 @@ export default function StudioBrands() {
                       </div>
                     </div>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleAnalyzeStyle(brand.id)}
+                        disabled={analyzingBrandId === brand.id}
+                        title="Analisar estilo dos exemplos"
+                      >
+                        {analyzingBrandId === brand.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-primary" />
+                        )}
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(brand)}>
                         <Edit className="w-4 h-4" />
                       </Button>
@@ -320,6 +356,11 @@ export default function StudioBrands() {
                     <p className="text-xs text-muted-foreground line-clamp-2">
                       ✗ {brand.dont_rules}
                     </p>
+                  )}
+                  {(brand as any).style_guide && (
+                    <Badge className="mt-2 text-[10px]" variant="secondary">
+                      ✨ Style Guide: {(brand as any).style_guide?.style_preset || "ativo"}
+                    </Badge>
                   )}
                 </CardContent>
               </Card>

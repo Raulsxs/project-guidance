@@ -452,16 +452,32 @@ const ContentPreview = () => {
 
             {content?.brand_snapshot && slides[currentSlide]?.templateHint ? (
               <div className="flex justify-center">
-                <div className="w-[320px] overflow-hidden rounded-2xl shadow-2xl" style={{ aspectRatio: "9/16" }}>
-                  <div style={{ transform: "scale(0.296)", transformOrigin: "top left", width: 1080, height: 1350 }}>
-                    <SlideTemplateRenderer
-                      slide={slides[currentSlide]}
-                      slideIndex={currentSlide}
-                      totalSlides={slides.length}
-                      brand={content.brand_snapshot as any}
-                      template={slides[currentSlide].templateHint}
-                      dimensions={{ width: 1080, height: 1350 }}
-                    />
+                {/* Phone mockup frame */}
+                <div className="relative mx-auto" style={{ width: 320 }}>
+                  {/* Phone bezel */}
+                  <div className="rounded-[2.5rem] border-[6px] border-muted-foreground/20 bg-muted/30 p-2 shadow-2xl">
+                    {/* Notch */}
+                    <div className="mx-auto mb-2 h-5 w-28 rounded-full bg-muted-foreground/15" />
+                    {/* Screen */}
+                    <div className="overflow-hidden rounded-[1.5rem] bg-background" style={{ aspectRatio: content.content_type === "story" ? "9/16" : "4/5" }}>
+                      <div style={{
+                        transform: `scale(${content.content_type === "story" ? 308 / 1080 : 308 / 1080})`,
+                        transformOrigin: "top left",
+                        width: 1080,
+                        height: content.content_type === "story" ? 1920 : 1350,
+                      }}>
+                        <SlideTemplateRenderer
+                          slide={slides[currentSlide]}
+                          slideIndex={currentSlide}
+                          totalSlides={slides.length}
+                          brand={content.brand_snapshot as any}
+                          template={slides[currentSlide].templateHint}
+                          dimensions={{ width: 1080, height: content.content_type === "story" ? 1920 : 1350 }}
+                        />
+                      </div>
+                    </div>
+                    {/* Home indicator */}
+                    <div className="mx-auto mt-2 h-1 w-24 rounded-full bg-muted-foreground/20" />
                   </div>
                 </div>
               </div>
