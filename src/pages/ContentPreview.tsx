@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import SlidePreview from "@/components/content/SlidePreview";
 import SlideEditor from "@/components/content/SlideEditor";
 import RegenerateModal from "@/components/content/RegenerateModal";
 import ScheduleModal from "@/components/content/ScheduleModal";
+import SlideTemplateRenderer, { getTemplateForSlide } from "@/components/content/SlideTemplateRenderer";
 import {
   ArrowLeft,
   Check,
@@ -29,6 +30,16 @@ interface Slide {
   body: string;
   imagePrompt: string;
   previewImage?: string;
+  templateHint?: string;
+}
+
+interface BrandSnapshotData {
+  name: string;
+  palette: { name: string; hex: string }[] | string[];
+  fonts: { headings: string; body: string };
+  visual_tone: string;
+  logo_url: string | null;
+  style_guide?: any;
 }
 
 interface GeneratedContent {
@@ -40,6 +51,7 @@ interface GeneratedContent {
   content_type: string;
   trend_id: string | null;
   status: string;
+  brand_snapshot: BrandSnapshotData | null;
 }
 
 const ContentPreview = () => {
@@ -395,13 +407,30 @@ const ContentPreview = () => {
               </h2>
             </div>
 
-            <SlidePreview
-              slides={slides}
-              currentSlide={currentSlide}
-              setCurrentSlide={setCurrentSlide}
-              template={templates[selectedTemplate]}
-              generatingImage={generatingPreview}
-            />
+            {content?.brand_snapshot && slides[currentSlide]?.templateHint ? (
+              <div className="flex justify-center">
+                <div className="w-[320px] overflow-hidden rounded-2xl shadow-2xl" style={{ aspectRatio: "9/16" }}>
+                  <div style={{ transform: "scale(0.296)", transformOrigin: "top left", width: 1080, height: 1350 }}>
+                    <SlideTemplateRenderer
+                      slide={slides[currentSlide]}
+                      slideIndex={currentSlide}
+                      totalSlides={slides.length}
+                      brand={content.brand_snapshot as any}
+                      template={slides[currentSlide].templateHint}
+                      dimensions={{ width: 1080, height: 1350 }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <SlidePreview
+                slides={slides}
+                currentSlide={currentSlide}
+                setCurrentSlide={setCurrentSlide}
+                template={templates[selectedTemplate]}
+                generatingImage={generatingPreview}
+              />
+            )}
 
             <Separator />
 

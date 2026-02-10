@@ -1,5 +1,17 @@
 // Types for the Visual Content Studio
 
+export interface StyleGuide {
+  style_preset: string;
+  recommended_templates: string[];
+  layout_rules: {
+    wave_position?: 'bottom' | 'top';
+    card_style?: string;
+    logo_position?: string;
+    typography_notes?: string;
+  };
+  confirmed_palette: string[];
+}
+
 export interface Brand {
   id: string;
   owner_user_id: string;
@@ -10,6 +22,7 @@ export interface Brand {
   visual_tone: string;
   do_rules: string | null;
   dont_rules: string | null;
+  style_guide: StyleGuide | null;
   created_at: string;
   updated_at: string;
 }

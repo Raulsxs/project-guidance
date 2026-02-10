@@ -248,13 +248,14 @@ serve(async (req) => {
     // ══════ BRAND LOADING & SNAPSHOT ══════
     let brandTokens: BrandTokens | null = null;
     let brandContext = "";
+    let brandStyleGuide: any = null;
 
     if (brandId) {
       console.log(`[generate-content] Loading brand: ${brandId}`);
 
       const { data: brand, error: brandError } = await supabase
         .from("brands")
-        .select("name, palette, visual_tone, do_rules, dont_rules, fonts, logo_url")
+        .select("name, palette, visual_tone, do_rules, dont_rules, fonts, logo_url, style_guide")
         .eq("id", brandId)
         .single();
 
@@ -269,7 +270,8 @@ serve(async (req) => {
 
         brandTokens = buildBrandTokens(brand, examples || []);
         brandContext = buildBrandContextForPrompt(brandTokens);
-        console.log(`[generate-content] Brand tokens built: ${brandTokens.name}, ${brandTokens.palette.length} colors, tone=${brandTokens.visual_tone}`);
+        brandStyleGuide = brand.style_guide || null;
+        console.log(`[generate-content] Brand tokens built: ${brandTokens.name}, ${brandTokens.palette.length} colors, tone=${brandTokens.visual_tone}, hasStyleGuide=${!!brandStyleGuide}`);
       }
     }
 
@@ -367,9 +369,22 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
 
     const generatedContent = JSON.parse(jsonMatch[0]);
 
-    // ══════ IMAGE GENERATION WITH RIGID BRAND TOKENS ══════
-    if (generateImages && generatedContent.slides && generatedContent.slides.length > 0) {
-      console.log(`[generate-content] Generating images for ${generatedContent.slides.length} slides...`);
+    // ══════ TEMPLATE HINTS + CONDITIONAL IMAGE GENERATION ══════
+    const useDeterministicRender = !!brandStyleGuide;
+    
+    if (useDeterministicRender) {
+      // Brand has a style guide → use deterministic templates, skip AI image generation
+      console.log(`[generate-content] Using deterministic templates (style_preset=${brandStyleGuide.style_preset})`);
+      const recommended = brandStyleGuide.recommended_templates || ["wave_cover", "wave_text_card"];
+      
+      generatedContent.slides = generatedContent.slides.map((slide: any, i: number) => ({
+        ...slide,
+        templateHint: i === 0 ? recommended[0] : (i === generatedContent.slides.length - 1 ? recommended[0] : recommended[1] || recommended[0]),
+        // No previewImage — will be rendered deterministically on the client
+      }));
+    } else if (generateImages && generatedContent.slides && generatedContent.slides.length > 0) {
+      // No style guide → fall back to AI image generation
+      console.log(`[generate-content] Generating AI images for ${generatedContent.slides.length} slides (no style guide)...`);
       
       const slidesWithImages = await Promise.all(
         generatedContent.slides.map(async (slide: { headline: string; body: string; imagePrompt: string }, index: number) => {
@@ -381,10 +396,8 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
             let finalPrompt: string;
 
             if (brandTokens) {
-              // Use structured brand prompt
               finalPrompt = buildImagePromptWithBrand(slide.imagePrompt, brandTokens, contentStyle);
             } else {
-              // Default prompt without brand
               let styleGuide = "Professional healthcare marketing image for Instagram.";
               if (contentStyle === "quote") styleGuide = "Inspirational, minimalist background. Premium aesthetic.";
               else if (contentStyle === "tip") styleGuide = "Clean, organized, professional image.";
@@ -392,8 +405,6 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
 
               finalPrompt = `${styleGuide} ${slide.imagePrompt}. Clean, modern, high-end aesthetic. No text overlays. Ultra high resolution.`;
             }
-
-            console.log(`[generate-content] Image prompt (slide ${index + 1}): ${finalPrompt.substring(0, 120)}...`);
 
             const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
               method: "POST",
@@ -403,9 +414,7 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
               },
               body: JSON.stringify({
                 model: "google/gemini-2.5-flash-image",
-                messages: [
-                  { role: "user", content: finalPrompt },
-                ],
+                messages: [{ role: "user", content: finalPrompt }],
                 modalities: ["image", "text"],
               }),
             });
@@ -435,7 +444,7 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
     }
 
     // ══════ RESPONSE WITH BRAND SNAPSHOT ══════
-    console.log(`[generate-content] Returning brandId=${brandId || 'null'}, palette size=${brandTokens?.palette?.length ?? 0}`);
+    console.log(`[generate-content] Returning brandId=${brandId || 'null'}, palette size=${brandTokens?.palette?.length ?? 0}, deterministic=${useDeterministicRender}`);
 
     return new Response(JSON.stringify({
       success: true,
@@ -446,6 +455,8 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
         trendTitle: trend.title,
         brandId: brandId || null,
         brandSnapshot: brandTokens || null,
+        styleGuide: brandStyleGuide || null,
+        useDeterministicRender,
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
