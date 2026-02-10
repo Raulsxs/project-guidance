@@ -63,6 +63,7 @@ export type Database = {
           name: string
           owner_user_id: string
           palette: Json | null
+          style_guide: Json | null
           updated_at: string
           visual_tone: string | null
         }
@@ -76,6 +77,7 @@ export type Database = {
           name: string
           owner_user_id: string
           palette?: Json | null
+          style_guide?: Json | null
           updated_at?: string
           visual_tone?: string | null
         }
@@ -89,6 +91,7 @@ export type Database = {
           name?: string
           owner_user_id?: string
           palette?: Json | null
+          style_guide?: Json | null
           updated_at?: string
           visual_tone?: string | null
         }
