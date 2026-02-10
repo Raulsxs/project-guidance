@@ -63,14 +63,51 @@ const stylePrompts: Record<string, { systemAddition: string; userGuide: string; 
   }
 };
 
-function buildBrandTokens(brand: any, examples: any[]): BrandTokens {
-  const palette = Array.isArray(brand.palette)
-    ? brand.palette.map((c: any) => ({
-        name: c.name || "cor",
-        hex: c.hex || c,
-        role: c.role || undefined,
+// Normalize any palette format into { name, hex, role? }[]
+function normalizePalette(raw: unknown): { name: string; hex: string; role?: string }[] {
+  if (!raw) return [];
+
+  // Case A: array of strings ["#a4d3eb", "#10559a"]
+  if (Array.isArray(raw)) {
+    return raw.map((item: unknown, i: number) => {
+      if (typeof item === "string") {
+        const hex = item.startsWith("#") ? item : `#${item}`;
+        return { name: `cor${i + 1}`, hex };
+      }
+      // Case B: array of objects { hex, name?, role? }
+      if (typeof item === "object" && item !== null) {
+        const obj = item as Record<string, unknown>;
+        const hex = typeof obj.hex === "string"
+          ? (obj.hex.startsWith("#") ? obj.hex : `#${obj.hex}`)
+          : "#000000";
+        return {
+          name: typeof obj.name === "string" ? obj.name : `cor${i + 1}`,
+          hex,
+          role: typeof obj.role === "string" ? obj.role : undefined,
+        };
+      }
+      return { name: `cor${i + 1}`, hex: "#000000" };
+    }).filter((c) => /^#[0-9a-fA-F]{3,8}$/.test(c.hex));
+  }
+
+  // Case C: object { primary: "#...", accent: "#...", ... }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    return Object.entries(obj)
+      .filter(([, v]) => typeof v === "string")
+      .map(([role, hex]) => ({
+        name: role,
+        hex: (hex as string).startsWith("#") ? (hex as string) : `#${hex as string}`,
+        role,
       }))
-    : [];
+      .filter((c) => /^#[0-9a-fA-F]{3,8}$/.test(c.hex));
+  }
+
+  return [];
+}
+
+function buildBrandTokens(brand: any, examples: any[]): BrandTokens {
+  const palette = normalizePalette(brand.palette);
 
   return {
     name: brand.name,
@@ -398,6 +435,8 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : 
     }
 
     // ══════ RESPONSE WITH BRAND SNAPSHOT ══════
+    console.log(`[generate-content] Returning brandId=${brandId || 'null'}, palette size=${brandTokens?.palette?.length ?? 0}`);
+
     return new Response(JSON.stringify({
       success: true,
       content: {
