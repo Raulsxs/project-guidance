@@ -304,6 +304,13 @@ const Dashboard = () => {
 
       if (error) throw error;
 
+      console.log("[Dashboard] generate-content response:", JSON.stringify({
+        success: data.success,
+        brandId: data.content?.brandId,
+        snapshotPaletteSize: data.content?.brandSnapshot?.palette?.length ?? 0,
+        slideCount: data.content?.slides?.length,
+      }));
+
       if (!data.success) {
         throw new Error(data.error || "Erro ao gerar conteúdo");
       }
@@ -314,20 +321,24 @@ const Dashboard = () => {
         throw new Error("Usuário não autenticado");
       }
 
+      const insertPayload: Record<string, unknown> = {
+        user_id: session.session.user.id,
+        trend_id: trendId,
+        content_type: format,
+        title: data.content.title,
+        caption: data.content.caption,
+        hashtags: data.content.hashtags,
+        slides: data.content.slides,
+        status: "draft",
+        brand_id: data.content.brandId || null,
+        brand_snapshot: data.content.brandSnapshot || null,
+      };
+
+      console.log("[Dashboard] Inserting with brand_id:", insertPayload.brand_id, "snapshot palette:", (insertPayload.brand_snapshot as any)?.palette?.length ?? 0);
+
       const { data: savedContent, error: saveError } = await supabase
         .from("generated_contents")
-        .insert({
-          user_id: session.session.user.id,
-          trend_id: trendId,
-          content_type: format,
-          title: data.content.title,
-          caption: data.content.caption,
-          hashtags: data.content.hashtags,
-          slides: data.content.slides,
-          status: "draft",
-          brand_id: data.content.brandId || null,
-          brand_snapshot: data.content.brandSnapshot || null,
-        } as any)
+        .insert(insertPayload as any)
         .select()
         .single();
 
