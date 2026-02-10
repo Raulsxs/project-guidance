@@ -21,6 +21,19 @@ interface GenerateContentRequest {
   generateImages?: boolean;
 }
 
+// Standardized Brand Tokens Schema
+interface BrandTokens {
+  name: string;
+  palette: { name: string; hex: string; role?: string }[];
+  fonts: { headings: string; body: string };
+  visual_tone: string;
+  logo_url: string | null;
+  do_rules: string | null;
+  dont_rules: string | null;
+  image_style: string;
+  example_descriptions: string[];
+}
+
 // Style-specific prompts
 const stylePrompts: Record<string, { systemAddition: string; userGuide: string; slideGuide: string }> = {
   news: {
@@ -50,46 +63,101 @@ const stylePrompts: Record<string, { systemAddition: string; userGuide: string; 
   }
 };
 
-interface BrandData {
-  name: string;
-  palette: unknown;
-  visual_tone: string | null;
-  do_rules: string | null;
-  dont_rules: string | null;
-  fonts: unknown;
-  brand_examples: { image_url: string; description: string | null; content_type: string | null }[];
+function buildBrandTokens(brand: any, examples: any[]): BrandTokens {
+  const palette = Array.isArray(brand.palette)
+    ? brand.palette.map((c: any) => ({
+        name: c.name || "cor",
+        hex: c.hex || c,
+        role: c.role || undefined,
+      }))
+    : [];
+
+  return {
+    name: brand.name,
+    palette,
+    fonts: brand.fonts || { headings: "Inter", body: "Inter" },
+    visual_tone: brand.visual_tone || "clean",
+    logo_url: brand.logo_url || null,
+    do_rules: brand.do_rules || null,
+    dont_rules: brand.dont_rules || null,
+    image_style: brand.visual_tone || "clean",
+    example_descriptions: examples
+      .filter((e: any) => e.description)
+      .map((e: any) => e.description),
+  };
 }
 
-function buildBrandContext(brand: BrandData): string {
+function buildBrandContextForPrompt(tokens: BrandTokens): string {
   const parts: string[] = [];
-  parts.push(`\n\nIDENTIDADE VISUAL DA MARCA "${brand.name}":`);
-  
-  if (brand.visual_tone) {
-    parts.push(`- Tom visual: ${brand.visual_tone}`);
+  parts.push(`\n\n══════ IDENTIDADE VISUAL OBRIGATÓRIA: "${tokens.name}" ══════`);
+  parts.push(`Tom visual: ${tokens.visual_tone}`);
+
+  if (tokens.palette.length > 0) {
+    const colors = tokens.palette.map((c) => `${c.name} ${c.hex}`).join(", ");
+    parts.push(`Paleta de cores (USAR ESTAS CORES): ${colors}`);
   }
-  if (brand.palette && Array.isArray(brand.palette) && brand.palette.length > 0) {
-    const colors = brand.palette.map((c: { hex?: string; name?: string }) => `${c.name || ''} ${c.hex || ''}`).join(', ');
-    parts.push(`- Paleta de cores: ${colors}`);
+
+  if (tokens.fonts) {
+    parts.push(`Fontes: Títulos=${tokens.fonts.headings}, Corpo=${tokens.fonts.body}`);
   }
-  if (brand.do_rules) {
-    parts.push(`- FAZER: ${brand.do_rules}`);
+
+  if (tokens.do_rules) {
+    parts.push(`✅ OBRIGATÓRIO: ${tokens.do_rules}`);
   }
-  if (brand.dont_rules) {
-    parts.push(`- NÃO FAZER: ${brand.dont_rules}`);
+
+  if (tokens.dont_rules) {
+    parts.push(`🚫 PROIBIDO: ${tokens.dont_rules}`);
   }
-  if (brand.brand_examples && brand.brand_examples.length > 0) {
-    const exDescriptions = brand.brand_examples
-      .filter(e => e.description)
-      .map(e => `  • ${e.description}`)
-      .join('\n');
-    if (exDescriptions) {
-      parts.push(`- Exemplos de referência:\n${exDescriptions}`);
-    }
+
+  if (tokens.example_descriptions.length > 0) {
+    parts.push(`Referências de estilo:\n${tokens.example_descriptions.map((d) => `  • ${d}`).join("\n")}`);
   }
-  
-  parts.push(`\nIMPORTANTE: Os imagePrompts devem refletir o tom visual "${brand.visual_tone || 'clean'}" e usar as cores da paleta da marca como referência.`);
-  
-  return parts.join('\n');
+
+  parts.push(`══════ FIM DA IDENTIDADE VISUAL ══════`);
+  return parts.join("\n");
+}
+
+function buildImagePromptWithBrand(basePrompt: string, tokens: BrandTokens, contentStyle: string): string {
+  const colorHexes = tokens.palette.map((c) => c.hex).filter(Boolean).join(", ");
+
+  let styleGuide = "Professional healthcare marketing image for Instagram.";
+  if (contentStyle === "quote") {
+    styleGuide = "Inspirational, minimalist background. Soft gradients or abstract patterns. Premium aesthetic.";
+  } else if (contentStyle === "tip") {
+    styleGuide = "Clean, organized, professional. Icons or visual metaphors for tips.";
+  } else if (contentStyle === "curiosity") {
+    styleGuide = "Eye-catching, intriguing image that sparks curiosity. Bold colors.";
+  }
+
+  // Structured prompt with rigid brand blocks
+  const parts = [
+    "=== BRAND TOKENS (DO NOT INVENT, USE EXACTLY) ===",
+    `Visual style: ${tokens.visual_tone}`,
+    `Color palette: ${colorHexes || "not specified - use professional defaults"}`,
+    `Image style: ${tokens.image_style}`,
+    tokens.do_rules ? `Rules to follow: ${tokens.do_rules}` : "",
+    "",
+    "=== MANDATORY RULES ===",
+    `- Use ONLY these brand colors as dominant: ${colorHexes}`,
+    `- Style must be: ${tokens.visual_tone}`,
+    `- ${styleGuide}`,
+    "- NO text overlays on the image",
+    "- Ultra high resolution, professional quality",
+    "",
+    "=== NEGATIVES (FORBIDDEN) ===",
+    tokens.dont_rules ? `- ${tokens.dont_rules}` : "",
+    "- No watermarks, no stock photo feel",
+    "- No generic clip art",
+    "- No text or words on the image",
+    "",
+    "=== OUTPUT ===",
+    "Generate ONLY background/illustration. No text overlays.",
+    `${basePrompt}`,
+    "",
+    "Style: Editorial photography, premium magazine quality, high-end aesthetic.",
+  ];
+
+  return parts.filter(Boolean).join("\n");
 }
 
 serve(async (req) => {
@@ -140,30 +208,31 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Fetch brand data if brandId is provided
+    // ══════ BRAND LOADING & SNAPSHOT ══════
+    let brandTokens: BrandTokens | null = null;
     let brandContext = "";
-    let brandData: BrandData | null = null;
+
     if (brandId) {
-      console.log("Fetching brand data for:", brandId);
+      console.log(`[generate-content] Loading brand: ${brandId}`);
+
       const { data: brand, error: brandError } = await supabase
         .from("brands")
-        .select("name, palette, visual_tone, do_rules, dont_rules, fonts")
+        .select("name, palette, visual_tone, do_rules, dont_rules, fonts, logo_url")
         .eq("id", brandId)
         .single();
-      
+
       if (brandError) {
-        console.error("Error fetching brand:", brandError);
+        console.error("[generate-content] Error fetching brand:", brandError);
       } else if (brand) {
-        // Fetch brand examples
         const { data: examples } = await supabase
           .from("brand_examples")
           .select("image_url, description, content_type")
           .eq("brand_id", brandId)
           .limit(5);
-        
-        brandData = { ...brand, brand_examples: examples || [] };
-        brandContext = buildBrandContext(brandData);
-        console.log("Brand context built for:", brand.name);
+
+        brandTokens = buildBrandTokens(brand, examples || []);
+        brandContext = buildBrandContextForPrompt(brandTokens);
+        console.log(`[generate-content] Brand tokens built: ${brandTokens.name}, ${brandTokens.palette.length} colors, tone=${brandTokens.visual_tone}`);
       }
     }
 
@@ -182,7 +251,7 @@ Regras:
 - ${contentStyle === "quote" ? "NÃO inclua CTAs ou links. A frase deve ser autossuficiente." : "Foque em agregar valor e gerar engajamento"}
 ${brandContext}`;
 
-    const userPrompt = `Crie um ${contentType === "post" ? "post para feed" : contentType === "story" ? "story" : "carrossel com ${slideCount} slides"} do Instagram.
+    const userPrompt = `Crie um ${contentType === "post" ? "post para feed" : contentType === "story" ? "story" : `carrossel com ${slideCount} slides`} do Instagram.
 
 ESTILO: ${contentStyle.toUpperCase()}
 ${styleConfig.userGuide}
@@ -202,17 +271,17 @@ Retorne exatamente neste formato JSON:
   "hashtags": ["hashtag1", "hashtag2", "...até 15 hashtags"],
   "slides": [
     {
-      "headline": "texto principal do slide (${contentStyle === "quote" ? "a frase inspiracional" : "chamada principal"})",
-      "body": "texto de apoio (máximo 2 linhas)${contentStyle === "quote" ? " - pode ser vazio para frases" : ""}",
-      "imagePrompt": "descrição detalhada em inglês para gerar imagem profissional relacionada ao tema${brandData ? '. MUST reflect the brand visual identity: ' + (brandData.visual_tone || 'clean') + ' style' : ''}"
+      "headline": "texto principal do slide",
+      "body": "texto de apoio (máximo 2 linhas)",
+      "imagePrompt": "descrição detalhada em inglês para gerar imagem profissional. ${brandTokens ? `MUST USE brand colors: ${brandTokens.palette.map(c => c.hex).join(', ')}. Style: ${brandTokens.visual_tone}.` : ''} NO TEXT ON IMAGE."
     }
   ]
 }
 
 Para ${contentType === "carousel" ? `carrossel, crie exatamente ${slideCount} slides` : contentType === "story" ? `story, crie ${slideCount} slides verticais` : "post, crie 1 slide"}.
-${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pode ser a assinatura da marca ou uma frase de fechamento." : ""}`;
+${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA." : ""}`;
 
-    console.log(`Generating ${contentStyle} content for ${contentType}${brandId ? ` with brand` : ''}...`);
+    console.log(`[generate-content] Generating ${contentStyle} ${contentType}${brandId ? ` with brand ${brandTokens?.name}` : ' without brand'}...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -243,7 +312,7 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
         });
       }
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+      console.error("[generate-content] AI gateway error:", response.status, errorText);
       throw new Error(`AI gateway error: ${response.status}`);
     }
 
@@ -254,7 +323,6 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
       throw new Error("No content generated");
     }
 
-    // Parse JSON from response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("Invalid JSON response from AI");
@@ -262,38 +330,34 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
 
     const generatedContent = JSON.parse(jsonMatch[0]);
 
-    // Build brand-aware image style guide
-    let brandImageStyle = "";
-    if (brandData) {
-      const palette = Array.isArray(brandData.palette) ? brandData.palette.map((c: { hex?: string }) => c.hex).filter(Boolean).join(', ') : '';
-      brandImageStyle = `Brand identity: ${brandData.visual_tone || 'clean'} style. Color palette: ${palette || 'not specified'}. ${brandData.do_rules ? 'Visual rules: ' + brandData.do_rules + '.' : ''}`;
-    }
-
-    // Generate images for all slides if enabled
+    // ══════ IMAGE GENERATION WITH RIGID BRAND TOKENS ══════
     if (generateImages && generatedContent.slides && generatedContent.slides.length > 0) {
-      console.log(`Generating images for ${generatedContent.slides.length} slides...`);
+      console.log(`[generate-content] Generating images for ${generatedContent.slides.length} slides...`);
       
       const slidesWithImages = await Promise.all(
         generatedContent.slides.map(async (slide: { headline: string; body: string; imagePrompt: string }, index: number) => {
           if (!slide.imagePrompt) return slide;
           
           try {
-            console.log(`Generating image for slide ${index + 1}...`);
+            console.log(`[generate-content] Generating image for slide ${index + 1}...`);
             
-            let imageStyleGuide = "Professional healthcare marketing image for Instagram.";
-            if (contentStyle === "quote") {
-              imageStyleGuide = "Inspirational, minimalist background image. Soft gradients or abstract patterns. Premium aesthetic.";
-            } else if (contentStyle === "tip") {
-              imageStyleGuide = "Clean, organized, professional image. Icons or visual metaphors for tips.";
-            } else if (contentStyle === "curiosity") {
-              imageStyleGuide = "Eye-catching, intriguing image that sparks curiosity. Bold colors.";
+            let finalPrompt: string;
+
+            if (brandTokens) {
+              // Use structured brand prompt
+              finalPrompt = buildImagePromptWithBrand(slide.imagePrompt, brandTokens, contentStyle);
+            } else {
+              // Default prompt without brand
+              let styleGuide = "Professional healthcare marketing image for Instagram.";
+              if (contentStyle === "quote") styleGuide = "Inspirational, minimalist background. Premium aesthetic.";
+              else if (contentStyle === "tip") styleGuide = "Clean, organized, professional image.";
+              else if (contentStyle === "curiosity") styleGuide = "Eye-catching, intriguing image. Bold colors.";
+
+              finalPrompt = `${styleGuide} ${slide.imagePrompt}. Clean, modern, high-end aesthetic. No text overlays. Ultra high resolution.`;
             }
 
-            // Append brand style if available
-            if (brandImageStyle) {
-              imageStyleGuide = `${brandImageStyle} ${imageStyleGuide}`;
-            }
-            
+            console.log(`[generate-content] Image prompt (slide ${index + 1}): ${finalPrompt.substring(0, 120)}...`);
+
             const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
               method: "POST",
               headers: {
@@ -303,17 +367,14 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
               body: JSON.stringify({
                 model: "google/gemini-2.5-flash-image",
                 messages: [
-                  {
-                    role: "user",
-                    content: `${imageStyleGuide} Style: Editorial photography, premium magazine quality. ${slide.imagePrompt}. Clean, modern, high-end aesthetic. No text overlays.`,
-                  },
+                  { role: "user", content: finalPrompt },
                 ],
                 modalities: ["image", "text"],
               }),
             });
 
             if (!imageResponse.ok) {
-              console.error(`Image generation failed for slide ${index + 1}:`, imageResponse.status);
+              console.error(`[generate-content] Image generation failed for slide ${index + 1}:`, imageResponse.status);
               return slide;
             }
 
@@ -321,13 +382,13 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
             const imageUrl = imageData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
 
             if (imageUrl) {
-              console.log(`Image generated for slide ${index + 1}`);
+              console.log(`[generate-content] Image generated for slide ${index + 1}`);
               return { ...slide, previewImage: imageUrl };
             }
 
             return slide;
           } catch (imgError) {
-            console.error(`Error generating image for slide ${index + 1}:`, imgError);
+            console.error(`[generate-content] Error generating image for slide ${index + 1}:`, imgError);
             return slide;
           }
         })
@@ -336,6 +397,7 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
       generatedContent.slides = slidesWithImages;
     }
 
+    // ══════ RESPONSE WITH BRAND SNAPSHOT ══════
     return new Response(JSON.stringify({
       success: true,
       content: {
@@ -343,13 +405,15 @@ ${contentStyle === "quote" ? "IMPORTANTE: O último slide NÃO deve ter CTA. Pod
         contentType,
         contentStyle,
         trendTitle: trend.title,
+        brandId: brandId || null,
+        brandSnapshot: brandTokens || null,
       }
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (error) {
-    console.error("generate-content error:", error);
+    console.error("[generate-content] error:", error);
     return new Response(JSON.stringify({ 
       error: error instanceof Error ? error.message : "Unknown error" 
     }), {
