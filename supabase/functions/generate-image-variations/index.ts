@@ -28,11 +28,9 @@ serve(async (req) => {
 
     // Fetch prompt(s) for this slide
     let promptQuery = supabase.from("image_prompts").select("*").eq("slide_id", slide_id);
-    
     if (prompt_id) {
       promptQuery = promptQuery.eq("id", prompt_id);
     }
-
     const { data: prompts, error: promptError } = await promptQuery.order("variant_index");
 
     if (promptError || !prompts || prompts.length === 0) {
@@ -40,9 +38,49 @@ serve(async (req) => {
       throw new Error("No prompts found. Run build-image-prompts first.");
     }
 
+    // ══════ FETCH BRAND DATA VIA SLIDE CHAIN ══════
+    const { data: slideData } = await supabase
+      .from("slides")
+      .select(`
+        id,
+        posts!inner (
+          content_type,
+          projects!inner (
+            brands!inner (
+              name, palette, visual_tone, do_rules, dont_rules
+            )
+          )
+        )
+      `)
+      .eq("id", slide_id)
+      .single();
+
+    const brand = (slideData as any)?.posts?.projects?.brands;
+    let brandBlock = "";
+
+    if (brand) {
+      const colorHexes = Array.isArray(brand.palette)
+        ? brand.palette.map((c: any) => c.hex || c).filter(Boolean).join(", ")
+        : "";
+      
+      brandBlock = [
+        "\n=== BRAND TOKENS (MANDATORY) ===",
+        `Brand: ${brand.name}`,
+        `Visual style: ${brand.visual_tone || "clean"}`,
+        `Color palette (USE THESE): ${colorHexes || "professional defaults"}`,
+        brand.do_rules ? `Rules to follow: ${brand.do_rules}` : "",
+        "",
+        "=== NEGATIVES (FORBIDDEN) ===",
+        brand.dont_rules ? `- ${brand.dont_rules}` : "",
+        "- No text overlays, no watermarks, no generic stock feel",
+        "=== END BRAND ===\n",
+      ].filter(Boolean).join("\n");
+
+      console.log(`[generate-image-variations] Brand loaded: ${brand.name}, colors: ${colorHexes}`);
+    }
+
     console.log(`[generate-image-variations] Found ${prompts.length} prompts to process`);
 
-    // Select model based on quality tier
     const model = quality_tier === "high" 
       ? "google/gemini-3-pro-image-preview"
       : "google/gemini-2.5-flash-image";
@@ -51,20 +89,19 @@ serve(async (req) => {
 
     const allGenerations: any[] = [];
 
-    // Generate images for each prompt
     for (const prompt of prompts) {
       console.log(`[generate-image-variations] Generating for prompt ${prompt.variant_index}: ${prompt.prompt.substring(0, 50)}...`);
 
       for (let i = 0; i < n_variations; i++) {
         try {
-          // Add variation to prompt
           const variationSuffix = n_variations > 1 
             ? `. Variation ${i + 1}: slightly different composition and lighting.` 
             : "";
           
-          const fullPrompt = `${prompt.prompt}${variationSuffix} Ultra high resolution, professional quality, 1080x1080 square format for Instagram.`;
+          // Inject brand block into every image prompt
+          const fullPrompt = `${brandBlock}${prompt.prompt}${variationSuffix}\n\nUltra high resolution, professional quality, 1080x1080 square format for Instagram. NO text on image.`;
 
-          console.log(`[generate-image-variations] Calling AI for variation ${i + 1}...`);
+          console.log(`[generate-image-variations] Final prompt (v${i + 1}): ${fullPrompt.substring(0, 150)}...`);
 
           const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
@@ -73,13 +110,8 @@ serve(async (req) => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: model,
-              messages: [
-                {
-                  role: "user",
-                  content: fullPrompt
-                }
-              ],
+              model,
+              messages: [{ role: "user", content: fullPrompt }],
               modalities: ["image", "text"]
             }),
           });
@@ -87,11 +119,8 @@ serve(async (req) => {
           if (!aiResponse.ok) {
             const errorText = await aiResponse.text();
             console.error(`[generate-image-variations] AI error for variation ${i + 1}:`, aiResponse.status, errorText);
-            
             if (aiResponse.status === 429) {
-              console.log("[generate-image-variations] Rate limited, waiting...");
               await new Promise(r => setTimeout(r, 2000));
-              continue;
             }
             continue;
           }
@@ -100,13 +129,12 @@ serve(async (req) => {
           const imageUrl = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
 
           if (!imageUrl) {
-            console.error(`[generate-image-variations] No image in response for variation ${i + 1}`);
+            console.error(`[generate-image-variations] No image for variation ${i + 1}`);
             continue;
           }
 
           console.log(`[generate-image-variations] Got image, uploading to storage...`);
 
-          // Convert base64 to blob and upload to storage
           const base64Data = imageUrl.replace(/^data:image\/\w+;base64,/, "");
           const imageBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
           
@@ -128,17 +156,14 @@ serve(async (req) => {
             .from("generated-images")
             .getPublicUrl(fileName);
 
-          const publicUrl = urlData.publicUrl;
-
-          // Save generation record
           const { data: generation, error: saveError } = await supabase
             .from("image_generations")
             .insert({
-              slide_id: slide_id,
+              slide_id,
               prompt_id: prompt.id,
               model_used: model,
-              image_url: publicUrl,
-              thumb_url: publicUrl, // Could create actual thumbnail later
+              image_url: urlData.publicUrl,
+              thumb_url: urlData.publicUrl,
               width: 1080,
               height: 1080,
               seed: `${Date.now()}_${i}`,
@@ -155,16 +180,14 @@ serve(async (req) => {
           console.log(`[generate-image-variations] Saved generation: ${generation.id}`);
           allGenerations.push(generation);
 
-          // Small delay between generations
           await new Promise(r => setTimeout(r, 500));
-
         } catch (genError) {
           console.error(`[generate-image-variations] Error in variation ${i + 1}:`, genError);
         }
       }
     }
 
-    console.log(`[generate-image-variations] Completed. Total generations: ${allGenerations.length}`);
+    console.log(`[generate-image-variations] Completed. Total: ${allGenerations.length}`);
 
     return new Response(JSON.stringify({ 
       success: true, 

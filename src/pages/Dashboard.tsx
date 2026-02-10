@@ -325,7 +325,9 @@ const Dashboard = () => {
           hashtags: data.content.hashtags,
           slides: data.content.slides,
           status: "draft",
-        })
+          brand_id: data.content.brandId || null,
+          brand_snapshot: data.content.brandSnapshot || null,
+        } as any)
         .select()
         .single();
 
