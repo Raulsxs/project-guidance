@@ -28,9 +28,14 @@ import {
 interface Slide {
   headline: string;
   body: string;
-  imagePrompt: string;
+  imagePrompt?: string;
+  illustrationPrompt?: string;
   previewImage?: string;
   templateHint?: string;
+  template?: string;
+  role?: string;
+  bullets?: string[];
+  speakerNotes?: string;
 }
 
 interface BrandSnapshotData {
@@ -52,6 +57,9 @@ interface GeneratedContent {
   trend_id: string | null;
   status: string;
   brand_snapshot: BrandSnapshotData | null;
+  visual_mode?: string;
+  source_summary?: string;
+  key_insights?: string[];
 }
 
 const ContentPreview = () => {
@@ -377,6 +385,11 @@ const ContentPreview = () => {
               <div className="flex-1">
                 <p className="font-medium text-foreground">{content.title}</p>
                 <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{content.caption}</p>
+                {content.visual_mode && (
+                  <Badge variant="outline" className="mt-2 text-xs">
+                    {content.visual_mode === "brand_strict" ? "🔒 Identidade Rígida" : content.visual_mode === "brand_guided" ? "🧭 Identidade + IA" : "🎨 Livre"}
+                  </Badge>
+                )}
               </div>
               <Button
                 variant="outline"
@@ -395,6 +408,36 @@ const ContentPreview = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Source Context (Base do Conteúdo) */}
+        {(content.source_summary || (content.key_insights && content.key_insights.length > 0)) && (
+          <Card className="shadow-card border-border/50">
+            <CardContent className="p-4 space-y-3">
+              <h3 className="text-sm font-heading font-semibold text-foreground flex items-center gap-2">
+                📚 Base do Conteúdo
+              </h3>
+              {content.source_summary && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Resumo da Fonte</p>
+                  <p className="text-sm text-foreground leading-relaxed">{content.source_summary}</p>
+                </div>
+              )}
+              {content.key_insights && content.key_insights.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Insights-Chave</p>
+                  <ul className="space-y-1">
+                    {content.key_insights.map((insight, i) => (
+                      <li key={i} className="text-sm text-foreground flex items-start gap-2">
+                        <span className="text-primary mt-0.5">•</span>
+                        <span>{insight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
