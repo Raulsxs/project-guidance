@@ -282,7 +282,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleGenerate = async (trendId: string, format: string, contentStyle: string, brandId: string | null) => {
+  const handleGenerate = async (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string) => {
     if (!selectedTrend) return;
     
     setIsGenerating(true);
@@ -299,6 +299,7 @@ const Dashboard = () => {
           contentType: format,
           contentStyle: contentStyle,
           brandId: brandId,
+          visualMode: visualMode,
         },
       });
 
@@ -307,15 +308,17 @@ const Dashboard = () => {
       console.log("[Dashboard] generate-content response:", JSON.stringify({
         success: data.success,
         brandId: data.content?.brandId,
+        visualMode: data.content?.visualMode,
         snapshotPaletteSize: data.content?.brandSnapshot?.palette?.length ?? 0,
         slideCount: data.content?.slides?.length,
+        sourceSummaryLen: data.content?.sourceSummary?.length ?? 0,
+        keyInsightsCount: data.content?.keyInsights?.length ?? 0,
       }));
 
       if (!data.success) {
         throw new Error(data.error || "Erro ao gerar conteúdo");
       }
 
-      // Save generated content to database
       const { data: session } = await supabase.auth.getSession();
       if (!session.session) {
         throw new Error("Usuário não autenticado");
@@ -332,9 +335,12 @@ const Dashboard = () => {
         status: "draft",
         brand_id: data.content.brandId || null,
         brand_snapshot: data.content.brandSnapshot || null,
+        visual_mode: data.content.visualMode || "free",
+        source_summary: data.content.sourceSummary || null,
+        key_insights: data.content.keyInsights || null,
       };
 
-      console.log("[Dashboard] Inserting with brand_id:", insertPayload.brand_id, "snapshot palette:", (insertPayload.brand_snapshot as any)?.palette?.length ?? 0);
+      console.log("[Dashboard] Inserting:", { brand_id: insertPayload.brand_id, visual_mode: insertPayload.visual_mode, palette: (insertPayload.brand_snapshot as any)?.palette?.length ?? 0 });
 
       const { data: savedContent, error: saveError } = await supabase
         .from("generated_contents")

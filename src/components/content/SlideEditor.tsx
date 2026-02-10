@@ -13,8 +13,14 @@ import ImageUpload from "./ImageUpload";
 interface Slide {
   headline: string;
   body: string;
-  imagePrompt: string;
+  imagePrompt?: string;
+  illustrationPrompt?: string;
   previewImage?: string;
+  templateHint?: string;
+  template?: string;
+  role?: string;
+  bullets?: string[];
+  speakerNotes?: string;
 }
 
 interface SlideEditorProps {

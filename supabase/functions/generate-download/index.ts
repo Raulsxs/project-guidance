@@ -4,29 +4,39 @@ import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 interface Slide {
   headline: string;
   body: string;
-  imagePrompt: string;
+  imagePrompt?: string;
+  illustrationPrompt?: string;
   previewImage?: string;
   templateHint?: string;
+  template?: string;
+  role?: string;
+  bullets?: string[];
 }
 
 interface BrandTokens {
   name: string;
-  palette: { name: string; hex: string }[];
+  palette: { name: string; hex: string }[] | string[];
   fonts: { headings: string; body: string };
   visual_tone: string;
   logo_url: string | null;
-  do_rules: string | null;
-  dont_rules: string | null;
-  image_style: string;
 }
 
-// Build SVG-based deterministic slide (server-side render)
+// Normalize palette for SVG rendering
+function getPaletteHexes(palette: BrandTokens["palette"]): string[] {
+  if (!palette) return [];
+  return palette.map((item) => {
+    if (typeof item === "string") return item;
+    return item.hex || "#000000";
+  });
+}
+
+// Build deterministic SVG for a slide
 function renderSlideToSVG(
   slide: Slide,
   slideIndex: number,
@@ -35,21 +45,17 @@ function renderSlideToSVG(
   width: number,
   height: number,
 ): string {
-  const palette = brand.palette.map(c => c.hex);
-  const bg = palette[0] || "#a4d3eb";
-  const dark = palette[1] || "#10559a";
-  const accent = palette[2] || "#c52244";
-  const cardBg = palette[3] || "#f5eaee";
+  const hexes = getPaletteHexes(brand.palette);
+  const bg = hexes[0] || "#a4d3eb";
+  const dark = hexes[1] || "#10559a";
+  const accent = hexes[2] || "#c52244";
+  const cardBg = hexes[3] || "#f5eaee";
   const headingFont = brand.fonts?.headings || "Inter";
   const bodyFont = brand.fonts?.body || "Inter";
-  const isWaveCard = slide.templateHint === "wave_text_card";
+  const templateName = slide.templateHint || slide.template || "wave_cover";
 
-  const badge = slideIndex === 0 ? "CAPA" : slideIndex === totalSlides - 1 ? "CTA" : `${slideIndex + 1}/${totalSlides}`;
-
-  // Escape XML entities
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  // Word-wrap text for SVG
   function wrapText(text: string, maxCharsPerLine: number): string[] {
     const words = text.split(" ");
     const lines: string[] = [];
@@ -68,105 +74,91 @@ function renderSlideToSVG(
 
   const headlineLines = wrapText(slide.headline, 28);
   const bodyLines = wrapText(slide.body, 45);
+  const badge = slideIndex === 0 ? "CAPA" : slideIndex === totalSlides - 1 ? "CTA" : `${slideIndex + 1}/${totalSlides}`;
 
   // Wave path
-  const wavePath = `M0,${height * 0.85} C${width * 0.17},${height * 0.82} ${width * 0.33},${height * 0.88} ${width * 0.5},${height * 0.85} C${width * 0.67},${height * 0.82} ${width * 0.83},${height * 0.88} ${width},${height * 0.85} L${width},${height} L0,${height} Z`;
+  const wavePath = `M0,${height * 0.82} C${width * 0.17},${height * 0.79} ${width * 0.33},${height * 0.85} ${width * 0.5},${height * 0.82} C${width * 0.67},${height * 0.79} ${width * 0.83},${height * 0.85} ${width},${height * 0.82} L${width},${height} L0,${height} Z`;
 
-  if (isWaveCard) {
-    // Card template
+  const badgeSvg = `<rect x="${width - 130}" y="30" width="100" height="36" rx="18" fill="${dark}"/>
+  <text x="${width - 80}" y="54" text-anchor="middle" fill="white" font-family="${esc(headingFont)}, sans-serif" font-size="16" font-weight="600">${badge}</text>`;
+
+  if (templateName === "wave_text_card") {
     const cardY = height * 0.25;
     const cardH = height * 0.45;
     const cardW = width * 0.82;
     const cardX = (width - cardW) / 2;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="${bg}"/>
+  <path d="${wavePath}" fill="white"/>
+  <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="24" fill="white" stroke="${cardBg}" stroke-width="3"/>
+  <rect x="${width / 2 - 24}" y="${cardY + 48}" width="48" height="4" rx="2" fill="${accent}"/>
+  ${headlineLines.map((line, i) => `<text x="${width / 2}" y="${cardY + 100 + i * 52}" text-anchor="middle" fill="${dark}" font-family="${esc(headingFont)}, sans-serif" font-size="48" font-weight="700">${esc(line)}</text>`).join("\n  ")}
+  ${bodyLines.map((line, i) => `<text x="${width / 2}" y="${cardY + 100 + headlineLines.length * 52 + 30 + i * 36}" text-anchor="middle" fill="${dark}" font-family="${esc(bodyFont)}, sans-serif" font-size="28" opacity="0.75">${esc(line)}</text>`).join("\n  ")}
+  ${badgeSvg}
+</svg>`;
+  }
+
+  if (templateName === "wave_bullets") {
+    const bullets = slide.bullets || [];
+    const bulletsSvg = bullets.map((b, i) => {
+      const y = height * 0.4 + 80 + i * 60;
+      return `<circle cx="90" cy="${y}" r="18" fill="${accent}"/>
+  <text x="90" y="${y + 6}" text-anchor="middle" fill="white" font-family="${esc(headingFont)}, sans-serif" font-size="16" font-weight="700">${i + 1}</text>
+  <text x="120" y="${y + 8}" fill="${dark}" font-family="${esc(bodyFont)}, sans-serif" font-size="26">${esc(b)}</text>`;
+    }).join("\n  ");
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <rect width="${width}" height="${height}" fill="${bg}"/>
   <path d="${wavePath}" fill="white"/>
-  
-  <!-- Card -->
-  <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="24" fill="white" stroke="${cardBg}" stroke-width="3"/>
-  
-  <!-- Accent bar -->
-  <rect x="${width / 2 - 24}" y="${cardY + 48}" width="48" height="4" rx="2" fill="${accent}"/>
-  
-  <!-- Headline -->
-  ${headlineLines.map((line, i) => `<text x="${width / 2}" y="${cardY + 100 + i * 52}" text-anchor="middle" fill="${dark}" font-family="${esc(headingFont)}, sans-serif" font-size="48" font-weight="700">${esc(line)}</text>`).join("\n  ")}
-  
-  <!-- Body -->
-  ${bodyLines.map((line, i) => `<text x="${width / 2}" y="${cardY + 100 + headlineLines.length * 52 + 30 + i * 36}" text-anchor="middle" fill="${dark}" font-family="${esc(bodyFont)}, sans-serif" font-size="28" opacity="0.75">${esc(line)}</text>`).join("\n  ")}
-  
-  <!-- Badge -->
-  <rect x="${width - 130}" y="30" width="100" height="36" rx="18" fill="${dark}"/>
+  <rect x="60" y="${height * 0.35}" width="60" height="6" rx="3" fill="${accent}"/>
+  ${headlineLines.map((line, i) => `<text x="60" y="${height * 0.35 + 50 + i * 56}" fill="${dark}" font-family="${esc(headingFont)}, sans-serif" font-size="52" font-weight="800">${esc(line)}</text>`).join("\n  ")}
+  ${bulletsSvg || bodyLines.map((line, i) => `<text x="60" y="${height * 0.35 + 50 + headlineLines.length * 56 + 30 + i * 40}" fill="${dark}" font-family="${esc(bodyFont)}, sans-serif" font-size="28" opacity="0.8">${esc(line)}</text>`).join("\n  ")}
+  ${badgeSvg}
+</svg>`;
+  }
+
+  if (templateName === "wave_closing") {
+    const textY = height * 0.35;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="${dark}"/>
+  <path d="${`M0,${height * 0.82} C${width * 0.17},${height * 0.79} ${width * 0.33},${height * 0.85} ${width * 0.5},${height * 0.82} C${width * 0.67},${height * 0.79} ${width * 0.83},${height * 0.85} ${width},${height * 0.82} L${width},${height} L0,${height} Z`}" fill="${bg}"/>
+  <rect x="${width / 2 - 30}" y="${textY}" width="60" height="6" rx="3" fill="${accent}"/>
+  ${headlineLines.map((line, i) => `<text x="${width / 2}" y="${textY + 60 + i * 64}" text-anchor="middle" fill="white" font-family="${esc(headingFont)}, sans-serif" font-size="56" font-weight="800">${esc(line)}</text>`).join("\n  ")}
+  ${bodyLines.map((line, i) => `<text x="${width / 2}" y="${textY + 60 + headlineLines.length * 64 + 30 + i * 40}" text-anchor="middle" fill="white" font-family="${esc(bodyFont)}, sans-serif" font-size="30" opacity="0.85">${esc(line)}</text>`).join("\n  ")}
+  <rect x="${width - 130}" y="30" width="100" height="36" rx="18" fill="rgba(255,255,255,0.2)"/>
   <text x="${width - 80}" y="54" text-anchor="middle" fill="white" font-family="${esc(headingFont)}, sans-serif" font-size="16" font-weight="600">${badge}</text>
 </svg>`;
   }
 
-  // Default: wave_cover template
+  // Default: wave_cover / story_cover / generic
   const textY = height * 0.4;
-
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <rect width="${width}" height="${height}" fill="${bg}"/>
   <path d="${wavePath}" fill="white"/>
-  
-  <!-- Accent bar -->
   <rect x="60" y="${textY}" width="60" height="6" rx="3" fill="${accent}"/>
-  
-  <!-- Headline -->
   ${headlineLines.map((line, i) => `<text x="60" y="${textY + 60 + i * 68}" fill="${dark}" font-family="${esc(headingFont)}, sans-serif" font-size="64" font-weight="800">${esc(line)}</text>`).join("\n  ")}
-  
-  <!-- Body -->
   ${bodyLines.map((line, i) => `<text x="60" y="${textY + 60 + headlineLines.length * 68 + 30 + i * 40}" fill="${dark}" font-family="${esc(bodyFont)}, sans-serif" font-size="32" opacity="0.8">${esc(line)}</text>`).join("\n  ")}
-  
-  <!-- Badge -->
-  <rect x="${width - 130}" y="30" width="100" height="36" rx="18" fill="${dark}"/>
-  <text x="${width - 80}" y="54" text-anchor="middle" fill="white" font-family="${esc(headingFont)}, sans-serif" font-size="16" font-weight="600">${badge}</text>
+  ${badgeSvg}
 </svg>`;
 }
 
-// Convert SVG to PNG using resvg-wasm (Deno-compatible)
-async function svgToPng(svg: string): Promise<Uint8Array> {
-  // Use the Lovable AI gateway to convert SVG to a rendered image
-  // Since we can't run resvg in Deno easily, we encode SVG as data URI
-  const svgBase64 = btoa(unescape(encodeURIComponent(svg)));
-  return Uint8Array.from(atob(svgBase64), c => c.charCodeAt(0));
-}
-
-async function generateAIImage(prompt: string, brand: BrandTokens, LOVABLE_API_KEY: string): Promise<string | null> {
-  const colorHexes = brand.palette.map(c => c.hex).filter(Boolean).join(", ");
-  const fullPrompt = [
-    "=== BRAND TOKENS (USE EXACTLY) ===",
-    `Visual style: ${brand.visual_tone}`,
-    `Color palette: ${colorHexes || "professional defaults"}`,
-    brand.do_rules ? `Rules: ${brand.do_rules}` : "",
-    "=== MANDATORY RULES ===",
-    `- Dominant colors: ${colorHexes}`,
-    "- NO text overlays on the image",
-    "- Ultra high resolution, professional quality",
-    "=== NEGATIVES (FORBIDDEN) ===",
-    brand.dont_rules ? `- ${brand.dont_rules}` : "",
-    "- No watermarks, no generic stock feel, no text",
-    "=== OUTPUT ===",
-    "Background/illustration only. No text.",
-    prompt,
-    "Style: Editorial photography, premium magazine quality, 1080x1350 portrait format.",
-  ].filter(Boolean).join("\n");
-
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
-      messages: [{ role: "user", content: fullPrompt }],
-      modalities: ["image", "text"],
-    }),
-  });
-
-  if (!response.ok) return null;
-  const data = await response.json();
-  return data.choices?.[0]?.message?.images?.[0]?.image_url?.url || null;
+// Fetch image bytes from URL
+async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
+  try {
+    if (url.startsWith("data:image")) {
+      const base64Data = url.split(",")[1];
+      return Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    }
+    if (url.startsWith("http")) {
+      const resp = await fetch(url);
+      if (!resp.ok) return null;
+      return new Uint8Array(await resp.arrayBuffer());
+    }
+    return null;
+  } catch (e) {
+    console.error("[generate-download] Error fetching image:", e);
+    return null;
+  }
 }
 
 serve(async (req) => {
@@ -178,8 +170,7 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -193,8 +184,7 @@ serve(async (req) => {
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
     if (claimsError || !claimsData?.claims) {
       return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -202,8 +192,7 @@ serve(async (req) => {
     const { contentId } = await req.json();
     if (!contentId) {
       return new Response(JSON.stringify({ error: "contentId is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -216,8 +205,7 @@ serve(async (req) => {
 
     if (contentError || !content) {
       return new Response(JSON.stringify({ error: "Content not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -226,78 +214,80 @@ serve(async (req) => {
 
     const slides = content.slides as Slide[];
     const brandSnapshot = content.brand_snapshot as BrandTokens | null;
+    const visualMode = (content as any).visual_mode || "free";
     const zip = new JSZip();
     const imageUrls: string[] = [];
-    
-    // Determine dimensions based on content type
+
     const isFeed = content.content_type !== "story";
     const width = 1080;
     const height = isFeed ? 1350 : 1920;
 
-    const useDeterministic = !!brandSnapshot && slides.some(s => s.templateHint);
-    console.log(`[generate-download] Mode: ${useDeterministic ? 'DETERMINISTIC' : 'AI'}, ${slides.length} slides, ${width}x${height}`);
+    const useDeterministic = visualMode === "brand_strict" || (visualMode === "brand_guided" && !!brandSnapshot);
+    console.log(`[generate-download] mode=${visualMode}, deterministic=${useDeterministic}, slides=${slides.length}, ${width}x${height}`);
 
     for (let i = 0; i < slides.length; i++) {
       const slide = slides[i];
-      console.log(`[generate-download] Processing slide ${i + 1}/${slides.length} (template: ${slide.templateHint || 'none'})`);
+      const templateName = slide.templateHint || slide.template || "wave_cover";
+      console.log(`[generate-download] Slide ${i + 1}/${slides.length} (template=${templateName}, role=${slide.role || 'unknown'})`);
 
       if (useDeterministic && brandSnapshot) {
-        // Deterministic SVG render
+        // Deterministic SVG
         const svg = renderSlideToSVG(slide, i, slides.length, brandSnapshot, width, height);
         const svgBytes = new TextEncoder().encode(svg);
         zip.file(`slide_${i + 1}.svg`, svgBytes);
-        
-        // Also save base64 SVG as a data URI for preview
         const svgB64 = btoa(unescape(encodeURIComponent(svg)));
         imageUrls.push(`data:image/svg+xml;base64,${svgB64}`);
-      } else if (brandSnapshot) {
-        // AI image generation with brand
-        const imageUrl = await generateAIImage(slide.imagePrompt, brandSnapshot, LOVABLE_API_KEY);
-        if (imageUrl) {
-          imageUrls.push(imageUrl);
-          if (imageUrl.startsWith("data:image")) {
-            const base64Data = imageUrl.split(",")[1];
-            const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-            zip.file(`slide_${i + 1}.png`, binaryData);
-          }
+      } else if (slide.previewImage) {
+        // Use existing preview image
+        const bytes = await fetchImageBytes(slide.previewImage);
+        if (bytes) {
+          const ext = slide.previewImage.includes("png") ? "png" : "jpg";
+          zip.file(`slide_${i + 1}.${ext}`, bytes);
+          imageUrls.push(slide.previewImage);
         }
       } else {
-        // No brand at all - basic AI generation
-        const prompt = `${slide.imagePrompt}. Style: professional healthcare marketing, modern, clean, Instagram, high quality, 1080x1350 portrait. No text.`;
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash-image",
-            messages: [{ role: "user", content: prompt }],
-            modalities: ["image", "text"],
-          }),
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const url = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-          if (url) {
-            imageUrls.push(url);
-            if (url.startsWith("data:image")) {
-              const b64 = url.split(",")[1];
-              zip.file(`slide_${i + 1}.png`, Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+        // Fallback: generate AI image
+        const prompt = `${slide.illustrationPrompt || slide.imagePrompt || slide.headline}. Professional healthcare marketing image, modern, clean, Instagram, high quality, ${width}x${height}. No text.`;
+        try {
+          const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-image",
+              messages: [{ role: "user", content: prompt }],
+              modalities: ["image", "text"],
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const url = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+            if (url) {
+              imageUrls.push(url);
+              const bytes = await fetchImageBytes(url);
+              if (bytes) zip.file(`slide_${i + 1}.png`, bytes);
             }
           }
+        } catch (e) {
+          console.error(`[generate-download] AI image error slide ${i + 1}:`, e);
         }
       }
     }
 
     // Captions file
     let captionsText = `# ${content.title}\n\n`;
-    if (brandSnapshot) captionsText += `## Marca: ${brandSnapshot.name}\n\n`;
+    if (brandSnapshot) captionsText += `## Marca: ${(brandSnapshot as any).name}\n`;
+    captionsText += `## Modo Visual: ${visualMode}\n\n`;
     captionsText += `## Legenda Principal\n${content.caption}\n\n`;
     captionsText += `## Hashtags\n${content.hashtags?.join(" ") || ""}\n\n`;
+    if ((content as any).source_summary) captionsText += `## Base do Conteúdo\n${(content as any).source_summary}\n\n`;
     captionsText += `## Slides\n\n`;
     slides.forEach((slide, idx) => {
-      captionsText += `### Slide ${idx + 1}\n**${slide.headline}**\n${slide.body}\n\n`;
+      captionsText += `### Slide ${idx + 1} (${slide.role || "slide"})\n**${slide.headline}**\n${slide.body}\n`;
+      if (slide.speakerNotes) captionsText += `_Speaker Notes: ${slide.speakerNotes}_\n`;
+      captionsText += "\n";
     });
     zip.file("legendas.txt", captionsText);
 
@@ -308,7 +298,7 @@ serve(async (req) => {
       .update({ image_urls: imageUrls, status: "approved", updated_at: new Date().toISOString() })
       .eq("id", contentId);
 
-    console.log(`[generate-download] ZIP generated: ${imageUrls.length} files, deterministic=${useDeterministic}`);
+    console.log(`[generate-download] ZIP generated: ${imageUrls.length} files`);
 
     return new Response(JSON.stringify({
       success: true,
@@ -324,8 +314,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       error: error instanceof Error ? error.message : "Unknown error"
     }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

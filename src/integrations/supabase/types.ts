@@ -107,13 +107,16 @@ export type Database = {
           hashtags: string[] | null
           id: string
           image_urls: string[] | null
+          key_insights: string[] | null
           scheduled_at: string | null
           slides: Json | null
+          source_summary: string | null
           status: string | null
           title: string
           trend_id: string | null
           updated_at: string
           user_id: string
+          visual_mode: string
         }
         Insert: {
           brand_id?: string | null
@@ -124,13 +127,16 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
+          key_insights?: string[] | null
           scheduled_at?: string | null
           slides?: Json | null
+          source_summary?: string | null
           status?: string | null
           title: string
           trend_id?: string | null
           updated_at?: string
           user_id: string
+          visual_mode?: string
         }
         Update: {
           brand_id?: string | null
@@ -141,13 +147,16 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
+          key_insights?: string[] | null
           scheduled_at?: string | null
           slides?: Json | null
+          source_summary?: string | null
           status?: string | null
           title?: string
           trend_id?: string | null
           updated_at?: string
           user_id?: string
+          visual_mode?: string
         }
         Relationships: [
           {
