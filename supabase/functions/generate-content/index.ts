@@ -207,17 +207,55 @@ function resolveSlideCount(
   contentType: string,
   requestedCount: number | null | undefined,
   formatConfig: StyleGuide["formats"] extends Record<string, infer V> ? V : never,
+  contentStyle?: string,
+  textLength?: number,
 ): number {
   if (contentType !== "carousel") return 1;
   // User specified a fixed number
   if (requestedCount && requestedCount >= 3 && requestedCount <= 10) return requestedCount;
-  // Template set defines a range - use midpoint
-  const range = (formatConfig as any)?.slide_count_range as [number, number] | undefined;
-  if (range && range.length === 2) {
-    return Math.round((range[0] + range[1]) / 2);
+  // Auto: dynamic estimation based on content style and text volume
+  return getAutoSlideCount(contentStyle || "news", textLength || 0, formatConfig);
+}
+
+function getAutoSlideCount(
+  contentStyle: string,
+  textLength: number,
+  formatConfig: any,
+): number {
+  // Template set defines a range - use it as bounds
+  const range = formatConfig?.slide_count_range as [number, number] | undefined;
+  const min = range?.[0] || 4;
+  const max = range?.[1] || 10;
+
+  // Base count by content style
+  const styleRanges: Record<string, [number, number]> = {
+    tip: [4, 6],
+    quote: [4, 5],
+    news: [6, 8],
+    educational: [6, 8],
+    curiosity: [5, 7],
+  };
+  const [styleMin, styleMax] = styleRanges[contentStyle] || [5, 7];
+
+  // Heuristic based on text length
+  let estimated: number;
+  if (textLength < 500) {
+    estimated = styleMin;
+  } else if (textLength < 2000) {
+    estimated = Math.round((styleMin + styleMax) / 2);
+  } else if (textLength < 5000) {
+    estimated = styleMax;
+  } else {
+    estimated = styleMax + 1;
   }
-  // Default
-  return 5;
+
+  // Clamp within both style range and template set range
+  const clampedMin = Math.max(min, styleMin);
+  const clampedMax = Math.min(max, styleMax + 2); // allow +2 for long content
+  const result = Math.max(clampedMin, Math.min(clampedMax, estimated));
+
+  console.log(`[generate-content] Auto slide count: style=${contentStyle}, textLen=${textLength}, estimated=${estimated}, range=[${clampedMin},${clampedMax}], result=${result}`);
+  return result;
 }
 
 function getTextLimits(styleGuide: StyleGuide | null, contentType: string): { headline: number[]; body: number[]; bulletsMax: number } {
@@ -268,7 +306,7 @@ function buildSlideRoles(
   }
   
   if (includeCta) {
-    roles.push("closing");
+    roles.push("cta");
   }
   
   return roles;
@@ -416,7 +454,9 @@ serve(async (req) => {
     // Resolve CTA: honor the user toggle, but override if template set policy says "never"
     const effectiveIncludeCta = ctaPolicy === "never" ? false : (ctaPolicy === "always" ? true : includeCta);
     
-    const slideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig);
+    // Calculate text length for auto slide count estimation
+    const textLength = (trend.fullContent || "").length + (trend.description || "").length + (manualBriefing?.body || "").length + (manualBriefing?.notes || "").length;
+    const slideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig, contentStyle, textLength);
     const textLimits = getTextLimits(activeStyleGuide, contentType);
     const templatePool = getTemplatesForFormat(activeStyleGuide, contentType, effectiveMode);
     const slideRoles = buildSlideRoles(contentType, slideCount, formatConfig, effectiveIncludeCta);
@@ -452,7 +492,12 @@ Cada slide DEVE usar os templates definidos por este estilo. NÃO misture templa
 
     // ══════ CTA INSTRUCTION ══════
     const ctaInstruction = effectiveIncludeCta
-      ? "O último slide (closing) deve ter um CTA natural e contextual, NÃO genérico como 'curta comente compartilhe'. Use algo específico ao tema."
+      ? `O último slide DEVE ser um CTA de engajamento com:
+  - role: "cta"
+  - headline: "Gostou do conteúdo?"
+  - body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌"
+  - template: "${(formatConfig as any)?.cta_templates?.[0] || 'wave_closing'}"
+  Este slide CTA é OBRIGATÓRIO e deve seguir EXATAMENTE este formato.`
       : "NÃO inclua CTA final. O último slide deve ser um insight ou conclusão, NÃO um 'curta comente compartilhe'.";
 
     // ══════ SYSTEM PROMPT ══════
@@ -585,7 +630,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
     const generated = JSON.parse(jsonMatch[0]);
 
     // ══════ POST-PROCESS SLIDES ══════
-    const processedSlides = (generated.slides || []).map((slide: any, i: number) => {
+    let processedSlides = (generated.slides || []).map((slide: any, i: number) => {
       const role = slide.role || slideRoles[i] || (i === 0 ? "cover" : i === (generated.slides.length - 1) ? "closing" : "insight");
       
       // HARD LOCK: determine template from the SELECTED template set only
@@ -610,6 +655,25 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
         templateHint: template,
       };
     });
+
+    // ══════ ENFORCE CTA SLIDE ══════
+    if (contentType === "carousel" && effectiveIncludeCta) {
+      const lastSlide = processedSlides[processedSlides.length - 1];
+      const ctaTemplate = (formatConfig as any)?.cta_templates?.[0] || "wave_closing";
+      // Force the last slide to be CTA regardless of what the AI generated
+      if (lastSlide && lastSlide.role !== "cta") {
+        processedSlides[processedSlides.length - 1] = {
+          ...lastSlide,
+          role: "cta",
+          template: ctaTemplate,
+          templateHint: ctaTemplate,
+          headline: "Gostou do conteúdo?",
+          body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
+          bullets: [],
+        };
+      }
+      console.log(`[generate-content] CTA slide enforced at position ${processedSlides.length}`);
+    }
 
     // ══════ IMAGE GENERATION (conditional on background_style) ══════
     const bgStyle = getBackgroundStyle(activeStyleGuide, contentType);
