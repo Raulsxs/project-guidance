@@ -40,22 +40,39 @@ serve(async (req) => {
 
     if (brandError || !brand) throw new Error("Brand not found");
 
-    // Load examples
+    // Load categories (editorial pillars)
+    const { data: categories } = await supabase
+      .from("brand_example_categories")
+      .select("id, name, description")
+      .eq("brand_id", brandId)
+      .order("created_at", { ascending: false });
+
+    // Load examples with category info
     const { data: examples } = await supabase
       .from("brand_examples")
-      .select("id, image_url, type, subtype, description")
+      .select("id, image_url, type, subtype, description, category_id, category_mode")
       .eq("brand_id", brandId)
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(30);
 
     if (!examples || examples.length === 0) {
       throw new Error("No brand examples found. Upload examples first.");
     }
 
+    // Map category names
+    const categoryMap = new Map((categories || []).map((c: any) => [c.id, c.name]));
+
     // Build example descriptions for the AI
-    const exampleDescriptions = examples.map((ex: any, i: number) =>
-      `${i + 1}. [${ex.type}${ex.subtype ? '/' + ex.subtype : ''}] ${ex.description || 'sem descrição'} (id: ${ex.id})`
-    ).join("\n");
+    const exampleDescriptions = examples.map((ex: any, i: number) => {
+      const catName = ex.category_id ? categoryMap.get(ex.category_id) || 'sem categoria' : 'auto';
+      return `${i + 1}. [${ex.type}${ex.subtype ? '/' + ex.subtype : ''}] Pilar: ${catName} | ${ex.description || 'sem descrição'} (id: ${ex.id})`;
+    }).join("\n");
+
+    // Build category list for the AI
+    const categoryNames = (categories || []).map((c: any) => c.name);
+    const categoryInstruction = categoryNames.length > 0
+      ? `\nPILARES EDITORIAIS EXISTENTES: ${categoryNames.join(", ")}\nIMPORTANTE: O nome de cada Template Set DEVE corresponder exatamente a um dos pilares editoriais listados acima. Se um pilar não tem exemplos suficientes, não crie um Template Set para ele. Não invente nomes novos — use exatamente os nomes dos pilares.`
+      : "";
 
     const paletteStr = Array.isArray(brand.palette)
       ? (brand.palette as string[]).join(", ")
@@ -86,11 +103,12 @@ Fontes: ${JSON.stringify(brand.fonts)}
 ${brand.do_rules ? `Regras positivas: ${brand.do_rules}` : ""}
 ${brand.dont_rules ? `Regras negativas: ${brand.dont_rules}` : ""}
 ${styleGuideStr}
+${categoryInstruction}
 
 EXEMPLOS DE REFERÊNCIA:
 ${exampleDescriptions}
 
-Analise os exemplos acima e crie Template Sets agrupando-os por estilo visual.
+Analise os exemplos acima e crie Template Sets agrupando-os por pilar editorial (categoria).${categoryNames.length > 0 ? " Use EXATAMENTE os nomes dos pilares editoriais como nomes dos Template Sets." : ""}
 
 Retorne EXATAMENTE este JSON (sem markdown, sem backticks):
 {
