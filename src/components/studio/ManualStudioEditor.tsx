@@ -388,7 +388,7 @@ export default function ManualStudioEditor() {
         {selectedBrand !== "free" && (
           <div className="space-y-1.5">
             <Label className="text-xs font-medium flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5" /> Template Set
+              <Layers className="w-3.5 h-3.5" /> Estilo de Conteúdo
             </Label>
             <Select value={selectedTemplateSet} onValueChange={setSelectedTemplateSet}>
               <SelectTrigger><SelectValue /></SelectTrigger>

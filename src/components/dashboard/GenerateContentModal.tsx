@@ -248,7 +248,7 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
           {showVisualModes && templateSets.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Label className="text-sm font-medium">Template Set</Label>
+                <Label className="text-sm font-medium">Estilo de Conteúdo</Label>
                 <Layers className="w-4 h-4 text-muted-foreground" />
               </div>
               <Select value={selectedTemplateSet} onValueChange={setSelectedTemplateSet}>
