@@ -285,7 +285,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleGenerate = async (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string, templateSetId: string | null = null) => {
+  const handleGenerate = async (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string, templateSetId: string | null = null, slideCount: number | null = null, includeCta: boolean = true) => {
     if (!selectedTrend) return;
     
     setIsGenerating(true);
@@ -305,6 +305,8 @@ const Dashboard = () => {
           brandId: brandId,
           visualMode: visualMode,
           templateSetId: templateSetId,
+          slideCount: slideCount,
+          includeCta: includeCta,
         },
       });
 
@@ -343,6 +345,9 @@ const Dashboard = () => {
         visual_mode: data.content.visualMode || "free",
         source_summary: data.content.sourceSummary || null,
         key_insights: data.content.keyInsights || null,
+        template_set_id: data.content.templateSetId || null,
+        slide_count: data.content.slideCount || null,
+        include_cta: data.content.includeCta ?? true,
       };
 
       console.log("[Dashboard] Inserting:", { brand_id: insertPayload.brand_id, visual_mode: insertPayload.visual_mode, palette: (insertPayload.brand_snapshot as any)?.palette?.length ?? 0 });

@@ -31,13 +31,24 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { supabase } from "@/integrations/supabase/client";
 
 interface GenerateContentModalProps {
   trend: Trend | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onGenerate: (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string, templateSetId: string | null) => void;
+  onGenerate: (
+    trendId: string,
+    format: string,
+    contentStyle: string,
+    brandId: string | null,
+    visualMode: string,
+    templateSetId: string | null,
+    slideCount: number | null,
+    includeCta: boolean,
+  ) => void;
   isGenerating: boolean;
 }
 
@@ -45,7 +56,7 @@ interface TemplateSetOption {
   id: string;
   name: string;
   description: string | null;
-  template_set: { formats?: Record<string, unknown> };
+  template_set: { formats?: Record<string, any> };
 }
 
 const formats = [
@@ -66,9 +77,9 @@ const formats = [
   {
     id: "carousel",
     name: "Carrossel",
-    description: "5 slides 1080x1350px cada",
+    description: "Múltiplos slides 1080x1350px",
     icon: Layers,
-    dimensions: "5 × 1080 × 1350",
+    dimensions: "1080 × 1350",
   },
 ];
 
@@ -127,6 +138,11 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
   const [templateSets, setTemplateSets] = useState<TemplateSetOption[]>([]);
   const [loadingBrands, setLoadingBrands] = useState(false);
 
+  // Carousel controls
+  const [slideCountMode, setSlideCountMode] = useState<"auto" | "fixed">("auto");
+  const [slideCount, setSlideCount] = useState(5);
+  const [includeCta, setIncludeCta] = useState(true);
+
   useEffect(() => {
     if (open) {
       const fetchBrands = async () => {
@@ -177,6 +193,29 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
     }
   }, [selectedBrand]);
 
+  // Update carousel defaults from selected template set
+  const resolvedTs = (() => {
+    const currentBrand = brands.find(b => b.id === selectedBrand);
+    const defaultTsId = currentBrand?.default_template_set_id || null;
+    const tsId = selectedTemplateSet === "auto" ? defaultTsId : selectedTemplateSet;
+    return templateSets.find(ts => ts.id === tsId);
+  })();
+
+  useEffect(() => {
+    if (resolvedTs?.template_set?.formats?.carousel) {
+      const carouselConfig = resolvedTs.template_set.formats.carousel;
+      if (carouselConfig.slide_count_range) {
+        const [min, max] = carouselConfig.slide_count_range;
+        setSlideCount(Math.round((min + max) / 2));
+      }
+      if (carouselConfig.cta_policy === "never") {
+        setIncludeCta(false);
+      } else if (carouselConfig.cta_policy === "always") {
+        setIncludeCta(true);
+      }
+    }
+  }, [resolvedTs]);
+
   const currentBrand = brands.find(b => b.id === selectedBrand);
   const defaultTemplateSet = currentBrand?.default_template_set_id || null;
   const defaultTemplateSetName = templateSets.find(ts => ts.id === defaultTemplateSet)?.name || null;
@@ -193,11 +232,14 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
         selectedBrand === "ai" ? null : selectedBrand,
         selectedVisualMode,
         resolvedTemplateSetId,
+        selectedFormat === "carousel" ? (slideCountMode === "auto" ? null : slideCount) : null,
+        selectedFormat === "carousel" ? includeCta : true,
       );
     }
   };
 
   const showVisualModes = selectedBrand !== "ai";
+  const showCarouselControls = selectedFormat === "carousel";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -252,7 +294,7 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
                 <Layers className="w-4 h-4 text-muted-foreground" />
               </div>
               <Select value={selectedTemplateSet} onValueChange={setSelectedTemplateSet}>
-                <SelectTrigger><SelectValue placeholder="Selecione um template" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Selecione um estilo" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">
                     <div className="flex items-center gap-2">
@@ -275,6 +317,11 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
                   ))}
                 </SelectContent>
               </Select>
+              {resolvedTs && (
+                <p className="text-xs text-muted-foreground">
+                  Estilo ativo: <span className="font-medium text-foreground">{resolvedTs.name}</span> — apenas as regras deste estilo serão usadas.
+                </p>
+              )}
             </div>
           )}
           </div>
@@ -384,6 +431,51 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
               ))}
             </RadioGroup>
           </div>
+
+          {/* Carousel Controls */}
+          {showCarouselControls && (
+            <div className="space-y-4 rounded-lg border border-border p-4 bg-muted/20">
+              <Label className="text-sm font-medium">Controles do Carrossel</Label>
+              
+              {/* Slide Count */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Nº de slides</Label>
+                  <Select value={slideCountMode} onValueChange={(v) => setSlideCountMode(v as "auto" | "fixed")}>
+                    <SelectTrigger className="w-28 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="fixed">Fixo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {slideCountMode === "fixed" && (
+                  <div className="flex items-center gap-3">
+                    <Slider
+                      value={[slideCount]}
+                      onValueChange={([v]) => setSlideCount(v)}
+                      min={3}
+                      max={10}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <span className="text-sm font-mono font-medium w-6 text-center">{slideCount}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* CTA Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Incluir slide CTA final</Label>
+                  <p className="text-[10px] text-muted-foreground">Slide de fechamento com chamada para ação</p>
+                </div>
+                <Switch checked={includeCta} onCheckedChange={setIncludeCta} />
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0 mt-4">
