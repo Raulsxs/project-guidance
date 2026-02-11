@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,6 +15,7 @@ import {
   Sparkles, Palette, Layers, Square, Smartphone, Save,
   ChevronLeft, ChevronRight, Plus, Trash2, Loader2,
   Newspaper, Quote, Lightbulb, GraduationCap, HelpCircle,
+  Wand2, Copy, Hash,
 } from "lucide-react";
 
 // ── Types ──
@@ -45,6 +46,9 @@ interface SlideData {
   role?: string;
   templateHint?: string;
   previewImage?: string;
+  speakerNotes?: string;
+  illustrationPrompt?: string;
+  imagePrompt?: string;
 }
 
 // ── Constants ──
@@ -73,7 +77,7 @@ const ROLE_TEMPLATES: Record<string, string> = {
 
 function getDefaultSlides(format: string): SlideData[] {
   if (format === "carousel") {
-    return CAROUSEL_ROLES.map((role, i) => ({
+    return CAROUSEL_ROLES.map((role) => ({
       headline: "",
       body: "",
       bullets: role === "insight" ? [""] : undefined,
@@ -97,6 +101,7 @@ export default function ManualStudioEditor() {
   const [selectedFormat, setSelectedFormat] = useState("carousel");
   const [selectedStyle, setSelectedStyle] = useState("news");
   const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
 
   // Data
   const [brands, setBrands] = useState<BrandOption[]>([]);
@@ -104,6 +109,13 @@ export default function ManualStudioEditor() {
   const [slides, setSlides] = useState<SlideData[]>(getDefaultSlides("carousel"));
   const [currentSlide, setCurrentSlide] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  // AI generation
+  const [generating, setGenerating] = useState(false);
+  const [caption, setCaption] = useState("");
+  const [hashtags, setHashtags] = useState<string[]>([]);
+  const [sourceSummary, setSourceSummary] = useState("");
+  const [keyInsights, setKeyInsights] = useState<string[]>([]);
 
   // ── Load brands ──
   useEffect(() => {
@@ -222,6 +234,83 @@ export default function ManualStudioEditor() {
     });
   };
 
+  // ── AI Generation ──
+  const handleGenerateWithAI = async () => {
+    if (!title.trim()) {
+      toast.error("Defina um título antes de gerar com IA");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const brandId = selectedBrand === "free" ? null : selectedBrand;
+      const effectiveMode = selectedBrand === "free" ? "free" : "brand_strict";
+
+      // Build manual briefing from current slide content
+      const currentSlideData = slides[currentSlide];
+      const manualBriefing = {
+        headline: currentSlideData?.headline || undefined,
+        body: currentSlideData?.body || undefined,
+        bullets: currentSlideData?.bullets?.filter(Boolean) || undefined,
+        notes: notes || undefined,
+      };
+
+      const { data, error } = await supabase.functions.invoke("generate-content", {
+        body: {
+          trend: {
+            title: title.trim(),
+            description: notes || title.trim(),
+            theme: selectedStyle === "news" ? "Saúde" : "Geral",
+            keywords: [],
+            fullContent: "",
+          },
+          contentType: selectedFormat,
+          contentStyle: selectedStyle,
+          brandId,
+          visualMode: effectiveMode,
+          templateSetId: resolvedTsId,
+          manualBriefing,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (!data?.success) throw new Error("Erro ao gerar conteúdo");
+
+      const content = data.content;
+
+      // Fill slides from AI response
+      if (content.slides && content.slides.length > 0) {
+        setSlides(content.slides.map((s: any) => ({
+          headline: s.headline || "",
+          body: s.body || "",
+          bullets: s.bullets || undefined,
+          template: s.template || s.templateHint || "wave_cover",
+          templateHint: s.templateHint || s.template || "wave_cover",
+          role: s.role || "cover",
+          previewImage: s.previewImage || undefined,
+          speakerNotes: s.speakerNotes || "",
+          illustrationPrompt: s.illustrationPrompt || "",
+          imagePrompt: s.imagePrompt || "",
+        })));
+        setCurrentSlide(0);
+      }
+
+      // Fill metadata
+      if (content.caption) setCaption(content.caption);
+      if (content.hashtags) setHashtags(content.hashtags);
+      if (content.sourceSummary) setSourceSummary(content.sourceSummary);
+      if (content.keyInsights) setKeyInsights(content.keyInsights);
+      if (content.title) setTitle(content.title);
+
+      toast.success("Conteúdo gerado pela IA! Edite à vontade.");
+    } catch (err: any) {
+      console.error("AI generation error:", err);
+      toast.error("Erro ao gerar: " + (err.message || "Tente novamente"));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   // ── Save draft ──
   const handleSaveDraft = async () => {
     if (!title.trim()) {
@@ -240,13 +329,15 @@ export default function ManualStudioEditor() {
           user_id: session.session.user.id,
           content_type: selectedFormat,
           title: title.trim(),
-          caption: "",
-          hashtags: [],
+          caption: caption || "",
+          hashtags: hashtags.length > 0 ? hashtags : [],
           slides: slides as any,
           status: "draft",
           brand_id: brandId,
           brand_snapshot: brandSnapshot as any,
           visual_mode: selectedBrand === "free" ? "free" : "brand_strict",
+          source_summary: sourceSummary || null,
+          key_insights: keyInsights.length > 0 ? keyInsights : null,
         })
         .select()
         .single();
@@ -261,20 +352,22 @@ export default function ManualStudioEditor() {
     }
   };
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copiado!");
+  };
+
   // ── Dimensions ──
   const format = FORMATS.find(f => f.id === selectedFormat)!;
   const dims = format.dims;
   const slide = slides[currentSlide];
   const showBullets = slide?.role === "insight" || slide?.template === "wave_bullets";
-
-  // ── Template name used ──
   const slideTemplate = selectedBrand === "free" ? "generic_free" : (slide?.templateHint || slide?.template || "wave_cover");
 
   return (
     <div className="space-y-6">
       {/* Config Bar */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Brand */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium flex items-center gap-1.5">
             <Palette className="w-3.5 h-3.5" /> Marca
@@ -292,7 +385,6 @@ export default function ManualStudioEditor() {
           </Select>
         </div>
 
-        {/* Template Set */}
         {selectedBrand !== "free" && (
           <div className="space-y-1.5">
             <Label className="text-xs font-medium flex items-center gap-1.5">
@@ -312,7 +404,6 @@ export default function ManualStudioEditor() {
           </div>
         )}
 
-        {/* Format */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">Formato</Label>
           <Select value={selectedFormat} onValueChange={setSelectedFormat}>
@@ -327,7 +418,6 @@ export default function ManualStudioEditor() {
           </Select>
         </div>
 
-        {/* Style */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">Estilo Editorial</Label>
           <Select value={selectedStyle} onValueChange={setSelectedStyle}>
@@ -343,14 +433,41 @@ export default function ManualStudioEditor() {
         </div>
       </div>
 
-      {/* Title */}
-      <div className="space-y-1.5">
-        <Label className="text-xs font-medium">Título do Conteúdo</Label>
-        <Input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="Ex: Novo estudo sobre cardiopatias congênitas"
-        />
+      {/* Title + Notes + AI button */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-5 space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Título / Tema do Conteúdo</Label>
+            <Input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Ex: Novo estudo sobre cardiopatias congênitas"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Notas / Briefing (opcional)</Label>
+            <Textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Contexto adicional, links, pontos a abordar..."
+              rows={3}
+            />
+          </div>
+        </div>
+        <div className="lg:col-span-7 flex items-end">
+          <Button
+            onClick={handleGenerateWithAI}
+            disabled={generating || !title.trim()}
+            className="gap-2 h-12"
+            size="lg"
+          >
+            {generating ? (
+              <><Loader2 className="w-5 h-5 animate-spin" /> Gerando com IA...</>
+            ) : (
+              <><Wand2 className="w-5 h-5" /> Gerar com IA</>
+            )}
+          </Button>
+        </div>
       </div>
 
       <Separator />
@@ -366,7 +483,6 @@ export default function ManualStudioEditor() {
                 <Badge variant="outline" className="ml-2 text-[10px]">{slide.role}</Badge>
               )}
             </h3>
-            {/* Slide nav */}
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={currentSlide === 0} onClick={() => setCurrentSlide(p => p - 1)}>
                 <ChevronLeft className="w-4 h-4" />
@@ -419,7 +535,7 @@ export default function ManualStudioEditor() {
             )}
           </div>
 
-          {/* Slide thumbnails for carousel */}
+          {/* Slide thumbnails */}
           {slides.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2">
               {slides.map((s, i) => (
@@ -435,6 +551,57 @@ export default function ManualStudioEditor() {
                   <div className="text-[9px] font-medium truncate">{s.headline || "—"}</div>
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Caption / Hashtags / Insights (AI output) */}
+          {(caption || hashtags.length > 0) && (
+            <div className="space-y-3 pt-2">
+              <Separator />
+              {caption && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">Legenda gerada</Label>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(caption)}>
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <Textarea value={caption} onChange={e => setCaption(e.target.value)} rows={5} className="text-xs" />
+                </div>
+              )}
+              {hashtags.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium flex items-center gap-1"><Hash className="w-3 h-3" /> Hashtags</Label>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(hashtags.map(h => h.startsWith("#") ? h : `#${h}`).join(" "))}>
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {hashtags.map((h, i) => (
+                      <Badge key={i} variant="secondary" className="text-[10px]">{h.startsWith("#") ? h : `#${h}`}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {sourceSummary && (
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">📚 Resumo da Fonte</Label>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{sourceSummary}</p>
+                </div>
+              )}
+              {keyInsights.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">💡 Insights-Chave</Label>
+                  <ul className="space-y-0.5">
+                    {keyInsights.map((ins, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                        <span className="text-primary">•</span>{ins}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -470,7 +637,6 @@ export default function ManualStudioEditor() {
             </div>
           </div>
 
-          {/* Template info */}
           <div className="mt-4 text-center">
             <Badge variant="secondary" className="text-[10px]">
               Template: {slideTemplate}

@@ -23,6 +23,12 @@ interface GenerateContentRequest {
   templateSetId?: string | null;
   tone?: string;
   targetAudience?: string;
+  manualBriefing?: {
+    headline?: string;
+    body?: string;
+    bullets?: string[];
+    notes?: string;
+  } | null;
 }
 
 interface StyleGuide {
@@ -286,6 +292,7 @@ serve(async (req) => {
       templateSetId = null,
       tone = "profissional e engajador",
       targetAudience = "gestores de saúde",
+      manualBriefing = null,
     } = await req.json() as GenerateContentRequest;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -380,9 +387,20 @@ serve(async (req) => {
 
     // ══════ SOURCE CONTEXT ══════
     const fullContent = trend.fullContent || "";
-    const sourceBlock = fullContent
-      ? `══════ CONTEÚDO COMPLETO DA FONTE (use como base principal) ══════\n${fullContent.substring(0, 12000)}\n══════ FIM DO CONTEÚDO COMPLETO ══════`
-      : `══════ FONTE ORIGINAL ══════\nTítulo: ${trend.title}\nDescrição: ${trend.description || "Sem descrição detalhada disponível."}\n══════ FIM DA FONTE ══════`;
+    let sourceBlock: string;
+    if (fullContent) {
+      sourceBlock = `══════ CONTEÚDO COMPLETO DA FONTE (use como base principal) ══════\n${fullContent.substring(0, 12000)}\n══════ FIM DO CONTEÚDO COMPLETO ══════`;
+    } else if (manualBriefing && (manualBriefing.headline || manualBriefing.body || manualBriefing.notes)) {
+      const parts: string[] = ["══════ BRIEFING MANUAL (use como base principal) ══════"];
+      if (manualBriefing.headline) parts.push(`Headline sugerida: ${manualBriefing.headline}`);
+      if (manualBriefing.body) parts.push(`Corpo/contexto: ${manualBriefing.body}`);
+      if (manualBriefing.bullets && manualBriefing.bullets.length > 0) parts.push(`Pontos-chave:\n${manualBriefing.bullets.filter(Boolean).map(b => `  • ${b}`).join("\n")}`);
+      if (manualBriefing.notes) parts.push(`Notas adicionais: ${manualBriefing.notes}`);
+      parts.push("══════ FIM DO BRIEFING ══════");
+      sourceBlock = parts.join("\n");
+    } else {
+      sourceBlock = `══════ FONTE ORIGINAL ══════\nTítulo: ${trend.title}\nDescrição: ${trend.description || "Sem descrição detalhada disponível."}\n══════ FIM DA FONTE ══════`;
+    }
 
     // ══════ SYSTEM PROMPT ══════
     const systemPrompt = `Você é um especialista sênior em marketing digital para o setor de saúde. Você cria conteúdos para Instagram que são criativos, informativos e PROFUNDAMENTE conectados com a fonte original.
