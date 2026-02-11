@@ -40,6 +40,7 @@ function useTemplateSets(brandId: string) {
         .from("brand_template_sets")
         .select("*")
         .eq("brand_id", brandId)
+        .eq("status", "active")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as unknown as TemplateSet[];
