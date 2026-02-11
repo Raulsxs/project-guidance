@@ -286,17 +286,18 @@ const WaveClosingTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides
   const ct = getContentType(dimensions);
   const layout = getLayoutRules(brand, ct);
   const showWave = hasWavePattern(brand);
+  const isCta = slide.role === "cta";
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
       {showWave && <WaveSVG color={light} position="bottom" heightPct={layout.waveHeightPct} />}
       <div style={{ zIndex: 2, padding: `${layout.safeMargin}px`, maxWidth: "85%" }}>
         <AccentBar color={accent} style={{ margin: "0 auto 32px", width: 60 }} />
-        <h2 style={{ color: "#ffffff", fontSize: 56, fontWeight: typo.headlineWeight, lineHeight: 1.2, marginBottom: 24, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
-        <p style={{ color: "#ffffff", fontSize: 30, fontWeight: typo.bodyWeight, lineHeight: 1.5, opacity: 0.85, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+        <h2 style={{ color: "#ffffff", fontSize: isCta ? 52 : 56, fontWeight: typo.headlineWeight, lineHeight: 1.2, marginBottom: isCta ? 32 : 24, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
+        <p style={{ color: "#ffffff", fontSize: isCta ? 36 : 30, fontWeight: typo.bodyWeight, lineHeight: 1.5, opacity: 0.85, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`, letterSpacing: isCta ? "0.02em" : undefined }}>{slide.body}</p>
       </div>
       <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor="#ffffff33" textColor="#fff" />
-      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
+      <LogoMark brand={brand} position={logoConf.position} opacity={isCta ? 1 : logoConf.opacity} />
     </div>
   );
 };
@@ -385,6 +386,7 @@ const TemplateMap: Record<string, React.FC<SlideTemplateRendererProps>> = {
   wave_text_card: WaveTextCardTemplate,
   wave_bullets: WaveBulletsTemplate,
   wave_closing: WaveClosingTemplate,
+  wave_closing_cta: WaveClosingTemplate,
   story_cover: StoryCoverTemplate,
   story_tip: StoryTipTemplate,
   generic_free: GenericFreeTemplate,

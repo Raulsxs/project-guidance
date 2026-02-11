@@ -75,6 +75,7 @@ const ROLE_TEMPLATES: Record<string, string> = {
   context: "wave_text_card",
   insight: "wave_bullets",
   closing: "wave_closing",
+  cta: "wave_closing",
 };
 
 function getDefaultSlides(format: string): SlideData[] {
@@ -687,15 +688,17 @@ export default function ManualStudioEditor() {
             </div>
           </div>
 
-          <div className="mt-4 text-center">
-            <Badge variant="secondary" className="text-[10px]">
-              Template: {slideTemplate}
-            </Badge>
+          <div className="mt-4 text-center space-y-1">
             {resolvedTs && (
-              <Badge variant="outline" className="text-[10px] ml-2">
-                Set: {resolvedTs.name}
+              <Badge className="text-xs px-3 py-1">
+                Estilo aplicado: {resolvedTs.name}
               </Badge>
             )}
+            <div>
+              <Badge variant="secondary" className="text-[10px]">
+                Template: {slideTemplate}
+              </Badge>
+            </div>
           </div>
         </div>
       </div>
