@@ -14,9 +14,11 @@ import Contents from "./pages/Contents";
 import Profile from "./pages/Profile";
 import CustomTemplates from "./pages/CustomTemplates";
 import Studio from "./pages/Studio";
-import StudioBrands from "./pages/StudioBrands";
 import StudioProject from "./pages/StudioProject";
 import StudioPostEditor from "./pages/StudioPostEditor";
+import Brands from "./pages/Brands";
+import BrandNew from "./pages/BrandNew";
+import BrandEdit from "./pages/BrandEdit";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,9 +41,11 @@ const App = () => (
             <Route path="/profile" element={<Profile />} />
             <Route path="/templates" element={<CustomTemplates />} />
             <Route path="/studio" element={<Studio />} />
-            <Route path="/studio/brands" element={<StudioBrands />} />
             <Route path="/studio/project/:id" element={<StudioProject />} />
             <Route path="/studio/post/:id" element={<StudioPostEditor />} />
+            <Route path="/brands" element={<Brands />} />
+            <Route path="/brands/new" element={<BrandNew />} />
+            <Route path="/brands/:id/edit" element={<BrandEdit />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

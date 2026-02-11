@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useProjects, useBrands, useCreateProject, useQualityMetrics } from "@/hooks/useStudio";
-import { Plus, Folder, TrendingUp, CheckCircle, Eye, Sparkles, Palette } from "lucide-react";
+import { Plus, Folder, TrendingUp, CheckCircle, Eye, Sparkles } from "lucide-react";
 
 export default function Studio() {
   const navigate = useNavigate();
@@ -40,10 +40,6 @@ export default function Studio() {
             <p className="text-muted-foreground">Geração de imagens de alta qualidade com IA</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/studio/brands")}>
-              <Palette className="w-4 h-4 mr-2" />
-              Brand Kit
-            </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
                 <Button>
