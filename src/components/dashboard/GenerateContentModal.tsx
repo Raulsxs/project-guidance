@@ -114,7 +114,7 @@ const getSuggestedStyle = (theme: string, title: string): string => {
   return themeMap[theme] || "news";
 };
 
-interface BrandOption { id: string; name: string; visual_tone: string | null; palette: unknown; }
+interface BrandOption { id: string; name: string; visual_tone: string | null; palette: unknown; default_template_set_id: string | null; }
 
 const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerating }: GenerateContentModalProps) => {
   const [selectedFormat, setSelectedFormat] = useState("carousel");
@@ -132,8 +132,8 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
       const fetchBrands = async () => {
         setLoadingBrands(true);
         try {
-          const { data, error } = await supabase.from("brands").select("id, name, visual_tone, palette").order("name");
-          if (!error && data) setBrands(data);
+          const { data, error } = await supabase.from("brands").select("id, name, visual_tone, palette, default_template_set_id").order("name");
+          if (!error && data) setBrands(data as unknown as BrandOption[]);
         } catch (e) { console.error("Error fetching brands:", e); }
         finally { setLoadingBrands(false); }
       };
@@ -177,15 +177,22 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
     }
   }, [selectedBrand]);
 
+  const currentBrand = brands.find(b => b.id === selectedBrand);
+  const defaultTemplateSet = currentBrand?.default_template_set_id || null;
+  const defaultTemplateSetName = templateSets.find(ts => ts.id === defaultTemplateSet)?.name || null;
+
   const handleGenerate = () => {
     if (trend) {
+      const resolvedTemplateSetId = selectedTemplateSet === "auto"
+        ? defaultTemplateSet
+        : selectedTemplateSet;
       onGenerate(
         trend.id,
         selectedFormat,
         selectedStyle,
         selectedBrand === "ai" ? null : selectedBrand,
         selectedVisualMode,
-        selectedTemplateSet === "auto" ? null : selectedTemplateSet,
+        resolvedTemplateSetId,
       );
     }
   };
@@ -250,7 +257,12 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
                   <SelectItem value="auto">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-primary" />
-                      <span>Auto (padrão da marca)</span>
+                      <span>
+                        Auto
+                        {defaultTemplateSetName
+                          ? ` — Padrão: ${defaultTemplateSetName}`
+                          : " — (sem padrão)"}
+                      </span>
                     </div>
                   </SelectItem>
                   {templateSets.map((ts) => (
