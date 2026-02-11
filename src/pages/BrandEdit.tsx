@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,12 +13,15 @@ import { useBrands, useUpdateBrand } from "@/hooks/useStudio";
 import { VISUAL_TONES } from "@/types/studio";
 import { ArrowLeft, Plus, X, Save, Loader2 } from "lucide-react";
 import BrandExamples from "@/components/studio/BrandExamples";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export default function BrandEdit() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { data: brands, isLoading } = useBrands();
+  const { data: brands, isLoading, refetch } = useBrands();
   const updateBrand = useUpdateBrand();
+  const [analyzingStyle, setAnalyzingStyle] = useState(false);
 
   const brand = brands?.find((b) => b.id === id);
 
@@ -186,8 +190,47 @@ export default function BrandEdit() {
 
           <TabsContent value="examples">
             <Card>
-              <CardContent className="pt-6">
-                <BrandExamples brandId={brand.id} brandName={brand.name} />
+              <CardContent className="pt-6 space-y-4">
+                <BrandExamples
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  onAnalyzeStyle={async () => {
+                    setAnalyzingStyle(true);
+                    try {
+                      const { data, error } = await supabase.functions.invoke("analyze-brand-examples", {
+                        body: { brandId: brand.id },
+                      });
+                      if (error) throw error;
+                      if (data?.error) throw new Error(data.error);
+                      toast.success("Style Guide gerado!", {
+                        description: `Preset: ${data.styleGuide?.style_preset || "detectado"} (v${data.version})`,
+                      });
+                      refetch();
+                    } catch (err: any) {
+                      toast.error("Erro ao analisar: " + (err.message || "Tente novamente"));
+                    } finally {
+                      setAnalyzingStyle(false);
+                    }
+                  }}
+                  isAnalyzing={analyzingStyle}
+                />
+                {/* Style Guide Preview */}
+                {(brand as any).style_guide && (
+                  <div className="border border-border rounded-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-medium">Style Guide Ativo</h4>
+                      <Badge variant="secondary" className="text-[10px]">
+                        v{(brand as any).style_guide_version || 1} • {(brand as any).style_guide?.confidence || "—"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Preset: <strong>{(brand as any).style_guide?.style_preset}</strong>
+                    </p>
+                    <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 max-h-48 overflow-auto">
+                      {JSON.stringify((brand as any).style_guide, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -132,10 +132,18 @@ export function useAddBrandExample() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async (example: { brand_id: string; image_url: string; thumb_url?: string; description?: string; content_type?: string }) => {
+    mutationFn: async (example: { brand_id: string; image_url: string; thumb_url?: string; description?: string; content_type?: string; type?: string; subtype?: string }) => {
       const { data, error } = await supabase
         .from('brand_examples')
-        .insert(example)
+        .insert({
+          brand_id: example.brand_id,
+          image_url: example.image_url,
+          thumb_url: example.thumb_url,
+          description: example.description,
+          content_type: example.content_type || example.type || 'post',
+          type: example.type || 'post',
+          subtype: example.subtype,
+        })
         .select()
         .single();
       
@@ -148,6 +156,29 @@ export function useAddBrandExample() {
     },
     onError: (error) => {
       toast.error('Erro ao adicionar exemplo: ' + error.message);
+    }
+  });
+}
+
+export function useUpdateBrandExample() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ id, brandId, type, subtype, description }: { id: string; brandId: string; type: string; subtype: string | null; description: string | null }) => {
+      const { error } = await supabase
+        .from('brand_examples')
+        .update({ type, subtype, description, content_type: type })
+        .eq('id', id);
+      
+      if (error) throw error;
+      return brandId;
+    },
+    onSuccess: (brandId) => {
+      queryClient.invalidateQueries({ queryKey: ['brand-examples', brandId] });
+      toast.success('Exemplo atualizado!');
+    },
+    onError: (error) => {
+      toast.error('Erro ao atualizar exemplo: ' + error.message);
     }
   });
 }

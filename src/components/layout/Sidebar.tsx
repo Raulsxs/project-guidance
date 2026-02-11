@@ -20,6 +20,7 @@ const menuItems = [
   { icon: Wand2, label: "Studio IA", href: "/studio" },
   { icon: FileText, label: "Meus Conteúdos", href: "/contents" },
   { icon: Palette, label: "Brand Kit", href: "/brands" },
+  { icon: Sparkles, label: "Templates", href: "/templates" },
   { icon: User, label: "Meu Perfil", href: "/profile" },
 ];
 
