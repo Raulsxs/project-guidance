@@ -13,6 +13,7 @@ import { useBrands, useUpdateBrand } from "@/hooks/useStudio";
 import { VISUAL_TONES } from "@/types/studio";
 import { ArrowLeft, Plus, X, Save, Loader2 } from "lucide-react";
 import BrandExamples from "@/components/studio/BrandExamples";
+import TemplateSetsSection from "@/components/studio/TemplateSetsSection";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -116,6 +117,7 @@ export default function BrandEdit() {
           <TabsList>
             <TabsTrigger value="info">Informações</TabsTrigger>
             <TabsTrigger value="examples">Exemplos Visuais</TabsTrigger>
+            <TabsTrigger value="templates">Template Sets</TabsTrigger>
           </TabsList>
 
           <TabsContent value="info">
@@ -231,6 +233,18 @@ export default function BrandEdit() {
                     </pre>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="templates">
+            <Card>
+              <CardContent className="pt-6">
+                <TemplateSetsSection
+                  brandId={brand.id}
+                  brandName={brand.name}
+                  defaultTemplateSetId={(brand as any).default_template_set_id || null}
+                />
               </CardContent>
             </Card>
           </TabsContent>

@@ -20,6 +20,7 @@ interface GenerateContentRequest {
   contentStyle?: "news" | "quote" | "tip" | "educational" | "curiosity";
   brandId?: string | null;
   visualMode?: "brand_strict" | "brand_guided" | "free";
+  templateSetId?: string | null;
   tone?: string;
   targetAudience?: string;
 }
@@ -282,6 +283,7 @@ serve(async (req) => {
       contentStyle = "news",
       brandId = null,
       visualMode = brandId ? "brand_guided" : "free",
+      templateSetId = null,
       tone = "profissional e engajador",
       targetAudience = "gestores de saúde",
     } = await req.json() as GenerateContentRequest;
@@ -299,7 +301,7 @@ serve(async (req) => {
       console.log(`[generate-content] Loading brand: ${brandId}, mode: ${effectiveMode}`);
       const { data: brand, error: brandError } = await supabase
         .from("brands")
-        .select("name, palette, visual_tone, do_rules, dont_rules, fonts, logo_url, style_guide, style_guide_version")
+        .select("name, palette, visual_tone, do_rules, dont_rules, fonts, logo_url, style_guide, style_guide_version, default_template_set_id")
         .eq("id", brandId)
         .single();
 
@@ -315,6 +317,56 @@ serve(async (req) => {
         if (brand.style_guide) {
           activeStyleGuide = brand.style_guide as StyleGuide;
         }
+
+        // Load template set if specified, or use brand default
+        const tsId = templateSetId || (brand as any).default_template_set_id;
+        if (tsId) {
+          const { data: tsData } = await supabase
+            .from("brand_template_sets")
+            .select("template_set, name")
+            .eq("id", tsId)
+            .single();
+
+          if (tsData?.template_set) {
+            const ts = tsData.template_set as any;
+            // Merge template_set into activeStyleGuide
+            if (ts.formats) {
+              activeStyleGuide = {
+                ...activeStyleGuide,
+                formats: {
+                  ...activeStyleGuide.formats,
+                  ...Object.fromEntries(
+                    Object.entries(ts.formats).map(([fmt, fmtConfig]: [string, any]) => [
+                      fmt,
+                      {
+                        ...(activeStyleGuide.formats?.[fmt] || {}),
+                        ...fmtConfig,
+                      },
+                    ])
+                  ),
+                },
+              };
+              // Also merge brand_tokens from template set typography/logo
+              const formatConfig = ts.formats[contentType];
+              if (formatConfig) {
+                if (formatConfig.typography) {
+                  activeStyleGuide.brand_tokens = {
+                    ...activeStyleGuide.brand_tokens,
+                    typography: { ...activeStyleGuide.brand_tokens?.typography, ...formatConfig.typography },
+                  };
+                }
+                if (formatConfig.logo) {
+                  activeStyleGuide.brand_tokens = {
+                    ...activeStyleGuide.brand_tokens,
+                    logo: { ...activeStyleGuide.brand_tokens?.logo, ...formatConfig.logo },
+                  };
+                }
+              }
+            }
+            console.log(`[generate-content] Using template set: "${tsData.name}" (${tsId})`);
+          }
+        }
+
         brandContext = buildBrandContextBlock(brandTokens, activeStyleGuide);
         console.log(`[generate-content] Brand loaded: ${brandTokens.name}, ${brandTokens.palette.length} colors, mode=${effectiveMode}, style_guide_v${brand.style_guide_version || 0}`);
       }

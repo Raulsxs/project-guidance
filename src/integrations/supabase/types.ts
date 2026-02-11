@@ -58,9 +58,54 @@ export type Database = {
           },
         ]
       }
+      brand_template_sets: {
+        Row: {
+          brand_id: string
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          source_example_ids: Json | null
+          status: string
+          template_set: Json
+          updated_at: string
+        }
+        Insert: {
+          brand_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          source_example_ids?: Json | null
+          status?: string
+          template_set?: Json
+          updated_at?: string
+        }
+        Update: {
+          brand_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          source_example_ids?: Json | null
+          status?: string
+          template_set?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_template_sets_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       brands: {
         Row: {
           created_at: string
+          default_template_set_id: string | null
           do_rules: string | null
           dont_rules: string | null
           fonts: Json | null
@@ -77,6 +122,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_template_set_id?: string | null
           do_rules?: string | null
           dont_rules?: string | null
           fonts?: Json | null
@@ -93,6 +139,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_template_set_id?: string | null
           do_rules?: string | null
           dont_rules?: string | null
           fonts?: Json | null
@@ -107,7 +154,15 @@ export type Database = {
           updated_at?: string
           visual_tone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "brands_default_template_set_id_fkey"
+            columns: ["default_template_set_id"]
+            isOneToOne: false
+            referencedRelation: "brand_template_sets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       generated_contents: {
         Row: {

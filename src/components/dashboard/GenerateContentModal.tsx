@@ -37,8 +37,15 @@ interface GenerateContentModalProps {
   trend: Trend | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onGenerate: (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string) => void;
+  onGenerate: (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string, templateSetId: string | null) => void;
   isGenerating: boolean;
+}
+
+interface TemplateSetOption {
+  id: string;
+  name: string;
+  description: string | null;
+  template_set: { formats?: Record<string, unknown> };
 }
 
 const formats = [
@@ -115,7 +122,9 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
   const [suggestedStyle, setSuggestedStyle] = useState<string | null>(null);
   const [selectedBrand, setSelectedBrand] = useState<string>("ai");
   const [selectedVisualMode, setSelectedVisualMode] = useState("brand_guided");
+  const [selectedTemplateSet, setSelectedTemplateSet] = useState<string>("auto");
   const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [templateSets, setTemplateSets] = useState<TemplateSetOption[]>([]);
   const [loadingBrands, setLoadingBrands] = useState(false);
 
   useEffect(() => {
@@ -131,6 +140,25 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
       fetchBrands();
     }
   }, [open]);
+
+  // Load template sets when brand changes
+  useEffect(() => {
+    if (selectedBrand && selectedBrand !== "ai") {
+      const fetchTemplateSets = async () => {
+        const { data } = await supabase
+          .from("brand_template_sets")
+          .select("id, name, description, template_set")
+          .eq("brand_id", selectedBrand)
+          .eq("status", "active")
+          .order("created_at");
+        setTemplateSets((data || []) as unknown as TemplateSetOption[]);
+      };
+      fetchTemplateSets();
+    } else {
+      setTemplateSets([]);
+    }
+    setSelectedTemplateSet("auto");
+  }, [selectedBrand]);
 
   useEffect(() => {
     if (trend) {
@@ -157,6 +185,7 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
         selectedStyle,
         selectedBrand === "ai" ? null : selectedBrand,
         selectedVisualMode,
+        selectedTemplateSet === "auto" ? null : selectedTemplateSet,
       );
     }
   };
@@ -206,7 +235,36 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
             </Select>
             {!loadingBrands && brands.length === 0 && (
               <p className="text-xs text-muted-foreground">Nenhuma marca cadastrada. As imagens serão geradas com estilo livre.</p>
-            )}
+          )}
+
+          {/* Template Set Selection - only when brand selected */}
+          {showVisualModes && templateSets.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium">Template Set</Label>
+                <Layers className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <Select value={selectedTemplateSet} onValueChange={setSelectedTemplateSet}>
+                <SelectTrigger><SelectValue placeholder="Selecione um template" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      <span>Auto (padrão da marca)</span>
+                    </div>
+                  </SelectItem>
+                  {templateSets.map((ts) => (
+                    <SelectItem key={ts.id} value={ts.id}>
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-muted-foreground" />
+                        <span>{ts.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           </div>
 
           {/* Visual Mode Selection - only when brand selected */}

@@ -285,7 +285,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleGenerate = async (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string) => {
+  const handleGenerate = async (trendId: string, format: string, contentStyle: string, brandId: string | null, visualMode: string, templateSetId: string | null = null) => {
     if (!selectedTrend) return;
     
     setIsGenerating(true);
@@ -304,6 +304,7 @@ const Dashboard = () => {
           contentStyle: contentStyle,
           brandId: brandId,
           visualMode: visualMode,
+          templateSetId: templateSetId,
         },
       });
 
