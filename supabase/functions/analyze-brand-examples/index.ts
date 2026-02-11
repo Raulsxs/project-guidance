@@ -56,12 +56,12 @@ serve(async (req) => {
       });
     }
 
-    // Fetch examples (up to 3 images for multimodal)
+    // Fetch examples (up to 12 images for multimodal)
     const { data: examples } = await supabase
       .from("brand_examples")
-      .select("image_url, description, content_type")
+      .select("image_url, description, content_type, type, subtype")
       .eq("brand_id", brandId)
-      .limit(3);
+      .limit(12);
 
     if (!examples || examples.length === 0) {
       return new Response(JSON.stringify({ error: "No brand examples found. Upload at least 1 example image." }), {
@@ -69,46 +69,120 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[analyze-brand-examples] Found ${examples.length} examples, palette: ${JSON.stringify(brand.palette)}`);
+    const exampleCount = examples.length;
+    const confidence = exampleCount >= 8 ? "high" : exampleCount >= 4 ? "medium" : "low";
+
+    console.log(`[analyze-brand-examples] Found ${exampleCount} examples (confidence: ${confidence}), palette: ${JSON.stringify(brand.palette)}`);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    // Build examples metadata summary
+    const examplesSummary = examples.map((ex, i) => 
+      `Image ${i + 1}: type=${ex.type || ex.content_type || "post"}, subtype=${ex.subtype || "none"}, description="${ex.description || "none"}"`
+    ).join("\n");
 
     // Build multimodal message with images
     const contentParts: any[] = [
       {
         type: "text",
-        text: `You are a brand identity analyst. Analyze these ${examples.length} brand example images and the brand metadata below. Return ONLY valid JSON (no markdown, no code fences).
+        text: `You are a senior brand identity analyst specializing in social media visual systems. Analyze the provided brand example images and metadata below. Return ONLY valid JSON (no markdown, no code fences).
 
-Brand name: ${brand.name}
-Current palette: ${JSON.stringify(brand.palette)}
-Visual tone: ${brand.visual_tone || "not set"}
-Fonts: ${JSON.stringify(brand.fonts)}
+BRAND METADATA:
+- Name: ${brand.name}
+- Current palette: ${JSON.stringify(brand.palette)}
+- Visual tone: ${brand.visual_tone || "not set"}
+- Fonts: ${JSON.stringify(brand.fonts)}
+- Do rules: ${brand.do_rules || "none"}
+- Don't rules: ${brand.dont_rules || "none"}
+- Logo URL: ${brand.logo_url || "none"}
 
-Analyze the visual patterns across ALL images and return this exact JSON structure:
+EXAMPLES METADATA:
+${examplesSummary}
+
+ANALYSIS INSTRUCTIONS:
+1. Look ONLY at what appears in the actual images. Do NOT invent or hallucinate elements.
+2. Identify recurring visual patterns: shapes, wave positions, card styles, color distribution, typography weight/size, logo placement.
+3. Group findings by format (post, story, carousel) based on the type metadata.
+4. For each format, recommend which templates best match: wave_cover, wave_text_card, wave_bullets, wave_closing, story_cover, story_tip, generic_free.
+5. Extract exact colors seen (confirm against provided palette).
+6. Note text placement zones, safe margins, and composition patterns.
+
+Return this EXACT JSON structure:
 {
-  "style_preset": "<a short unique identifier like 'wave_minimal', 'navy_editorial', 'gradient_cards', etc.>",
-  "recommended_templates": ["wave_cover", "wave_text_card", "solid_cover", "gradient_card"],
-  "layout_rules": {
-    "wave_position": "bottom or top - based on visual patterns seen",
-    "card_style": "describe card styling: rounded, bordered, shadowed, etc.",
-    "logo_position": "bottom-center, top-right, top-left, etc.",
-    "typography_notes": "describe font weight, size relationships, alignment patterns"
+  "style_preset": "<short_unique_id like 'medical_wave_minimal', 'navy_editorial', etc.>",
+  "confidence": "${confidence}",
+  "brand_tokens": {
+    "palette_roles": {
+      "primary": "#hex",
+      "secondary": "#hex",
+      "accent": "#hex",
+      "background": "#hex",
+      "text_primary": "#hex",
+      "text_secondary": "#hex"
+    },
+    "typography": {
+      "headline_weight": 700,
+      "body_weight": 400,
+      "uppercase_headlines": false,
+      "headline_alignment": "left|center",
+      "body_alignment": "left|center"
+    },
+    "logo": {
+      "preferred_position": "top-right|top-left|bottom-center|bottom-right",
+      "watermark_opacity": 0.35,
+      "size_hint": "small|medium"
+    }
   },
-  "confirmed_palette": ["#hex1", "#hex2", "...reconfirm the dominant colors from the images, max 6"]
-}
-
-Focus on:
-- Shape patterns (waves, curves, geometric elements)
-- Color distribution (which color is dominant, accent, background)
-- Text placement and card layouts
-- Logo positioning
-- Overall composition style`
+  "formats": {
+    "post": {
+      "recommended_templates": ["wave_cover", "wave_text_card"],
+      "layout_rules": {
+        "wave_height_pct": 20,
+        "footer_height_px": 140,
+        "safe_margin_px": 96,
+        "background_style": "solid|gradient|image"
+      },
+      "text_limits": {
+        "headline_chars": [35, 60],
+        "body_chars": [140, 260]
+      }
+    },
+    "story": {
+      "recommended_templates": ["story_cover", "story_tip"],
+      "layout_rules": {
+        "safe_top_px": 220,
+        "safe_bottom_px": 260,
+        "safe_side_px": 90,
+        "background_style": "solid|gradient|image"
+      },
+      "text_limits": {
+        "headline_chars": [25, 45],
+        "body_chars": [90, 160]
+      }
+    },
+    "carousel": {
+      "recommended_templates": ["wave_cover", "wave_text_card", "wave_bullets", "wave_closing"],
+      "slide_roles": ["cover", "context", "insight", "insight", "closing"],
+      "text_limits": {
+        "headline_chars": [35, 60],
+        "body_chars": [160, 260],
+        "bullets_max": 5
+      }
+    }
+  },
+  "visual_patterns": [
+    "describe each distinct visual pattern you observe, one per line"
+  ],
+  "do_summary": ["summarize positive rules based on examples + brand rules"],
+  "dont_summary": ["summarize negative rules based on examples + brand rules"]
+}`
       }
     ];
 
-    // Add each example image as a URL reference
-    for (const example of examples) {
+    // Add each example image as a URL reference (limit to 6 for API constraints)
+    const imagesToSend = examples.slice(0, 6);
+    for (const example of imagesToSend) {
       contentParts.push({
         type: "image_url",
         image_url: { url: example.image_url }
@@ -122,7 +196,7 @@ Focus on:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-2.5-pro",
         messages: [{ role: "user", content: contentParts }],
       }),
     });
@@ -131,8 +205,13 @@ Focus on:
       const errText = await response.text();
       console.error(`[analyze-brand-examples] AI error: ${response.status}`, errText);
       if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded, tente novamente em alguns minutos." }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "Créditos insuficientes. Adicione créditos ao workspace." }), {
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       throw new Error(`AI gateway error: ${response.status}`);
@@ -150,12 +229,17 @@ Focus on:
     }
 
     const styleGuide = JSON.parse(jsonMatch[0]);
-    console.log(`[analyze-brand-examples] Style preset: ${styleGuide.style_preset}, templates: ${styleGuide.recommended_templates?.join(", ")}`);
+    console.log(`[analyze-brand-examples] Style preset: ${styleGuide.style_preset}, confidence: ${styleGuide.confidence}`);
 
-    // Save to brands.style_guide
+    // Save to brands with version tracking
+    const currentVersion = brand.style_guide_version || 0;
     const { error: updateError } = await supabase
       .from("brands")
-      .update({ style_guide: styleGuide })
+      .update({
+        style_guide: styleGuide,
+        style_guide_version: currentVersion + 1,
+        style_guide_updated_at: new Date().toISOString(),
+      })
       .eq("id", brandId);
 
     if (updateError) {
@@ -163,11 +247,12 @@ Focus on:
       throw new Error("Failed to save style guide");
     }
 
-    console.log(`[analyze-brand-examples] Style guide saved for brand ${brand.name}`);
+    console.log(`[analyze-brand-examples] Style guide v${currentVersion + 1} saved for brand ${brand.name}`);
 
     return new Response(JSON.stringify({
       success: true,
       styleGuide,
+      version: currentVersion + 1,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

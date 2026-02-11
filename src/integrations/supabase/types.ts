@@ -22,7 +22,9 @@ export type Database = {
           description: string | null
           id: string
           image_url: string
+          subtype: string | null
           thumb_url: string | null
+          type: string
         }
         Insert: {
           brand_id: string
@@ -31,7 +33,9 @@ export type Database = {
           description?: string | null
           id?: string
           image_url: string
+          subtype?: string | null
           thumb_url?: string | null
+          type?: string
         }
         Update: {
           brand_id?: string
@@ -40,7 +44,9 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string
+          subtype?: string | null
           thumb_url?: string | null
+          type?: string
         }
         Relationships: [
           {
@@ -64,6 +70,8 @@ export type Database = {
           owner_user_id: string
           palette: Json | null
           style_guide: Json | null
+          style_guide_updated_at: string | null
+          style_guide_version: number
           updated_at: string
           visual_tone: string | null
         }
@@ -78,6 +86,8 @@ export type Database = {
           owner_user_id: string
           palette?: Json | null
           style_guide?: Json | null
+          style_guide_updated_at?: string | null
+          style_guide_version?: number
           updated_at?: string
           visual_tone?: string | null
         }
@@ -92,6 +102,8 @@ export type Database = {
           owner_user_id?: string
           palette?: Json | null
           style_guide?: Json | null
+          style_guide_updated_at?: string | null
+          style_guide_version?: number
           updated_at?: string
           visual_tone?: string | null
         }
