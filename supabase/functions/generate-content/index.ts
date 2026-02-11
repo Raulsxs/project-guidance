@@ -21,6 +21,8 @@ interface GenerateContentRequest {
   brandId?: string | null;
   visualMode?: "brand_strict" | "brand_guided" | "free";
   templateSetId?: string | null;
+  slideCount?: number | null; // null = auto
+  includeCta?: boolean; // default true
   tone?: string;
   targetAudience?: string;
   manualBriefing?: {
@@ -43,6 +45,10 @@ interface StyleGuide {
     layout_rules?: Record<string, unknown>;
     text_limits?: { headline_chars?: number[]; body_chars?: number[]; bullets_max?: number };
     slide_roles?: string[];
+    role_to_template?: Record<string, string>;
+    cta_policy?: "never" | "optional" | "always";
+    cta_templates?: string[];
+    slide_count_range?: [number, number];
   }>;
   visual_patterns?: string[];
   confidence?: string;
@@ -84,6 +90,8 @@ const DEFAULT_STYLE_GUIDE: StyleGuide = {
       recommended_templates: ["generic_free"],
       slide_roles: ["cover", "context", "insight", "insight", "closing"],
       text_limits: { headline_chars: [35, 60], body_chars: [160, 260], bullets_max: 5 },
+      cta_policy: "optional",
+      slide_count_range: [3, 10],
     },
   },
   confidence: "high",
@@ -188,7 +196,6 @@ function buildBrandContextBlock(tokens: BrandTokens, styleGuide: StyleGuide | nu
   if (tokens.example_descriptions.length > 0) {
     parts.push(`Referências:\n${tokens.example_descriptions.map((d) => `  • ${d}`).join("\n")}`);
   }
-  // Add style guide patterns
   if (styleGuide?.visual_patterns && styleGuide.visual_patterns.length > 0) {
     parts.push(`Padrões visuais detectados:\n${styleGuide.visual_patterns.map((p) => `  • ${p}`).join("\n")}`);
   }
@@ -196,10 +203,21 @@ function buildBrandContextBlock(tokens: BrandTokens, styleGuide: StyleGuide | nu
   return parts.join("\n");
 }
 
-function getSlideCount(contentType: string): number {
-  if (contentType === "carousel") return 5;
-  if (contentType === "story") return 1;
-  return 1;
+function resolveSlideCount(
+  contentType: string,
+  requestedCount: number | null | undefined,
+  formatConfig: StyleGuide["formats"] extends Record<string, infer V> ? V : never,
+): number {
+  if (contentType !== "carousel") return 1;
+  // User specified a fixed number
+  if (requestedCount && requestedCount >= 3 && requestedCount <= 10) return requestedCount;
+  // Template set defines a range - use midpoint
+  const range = (formatConfig as any)?.slide_count_range as [number, number] | undefined;
+  if (range && range.length === 2) {
+    return Math.round((range[0] + range[1]) / 2);
+  }
+  // Default
+  return 5;
 }
 
 function getTextLimits(styleGuide: StyleGuide | null, contentType: string): { headline: number[]; body: number[]; bulletsMax: number } {
@@ -212,24 +230,48 @@ function getTextLimits(styleGuide: StyleGuide | null, contentType: string): { he
 }
 
 function getTemplatesForFormat(styleGuide: StyleGuide | null, contentType: string, visualMode: string): string[] {
-  if (visualMode === "free") {
-    return ["generic_free"];
-  }
+  if (visualMode === "free") return ["generic_free"];
   const formatGuide = styleGuide?.formats?.[contentType];
   const recommended = formatGuide?.recommended_templates;
   if (recommended && recommended.length > 0) return recommended;
-  // Defaults per format
   if (contentType === "story") return ["story_cover", "story_tip"];
   return ["wave_cover", "wave_text_card", "wave_bullets", "wave_text_card", "wave_closing"];
 }
 
-function getSlideRoles(styleGuide: StyleGuide | null, contentType: string, slideCount: number): string[] {
+function buildSlideRoles(
+  contentType: string,
+  slideCount: number,
+  formatConfig: any,
+  includeCta: boolean,
+): string[] {
   if (contentType !== "carousel") return ["cover"];
-  const formatGuide = styleGuide?.formats?.carousel;
-  if (formatGuide?.slide_roles && formatGuide.slide_roles.length === slideCount) {
-    return formatGuide.slide_roles;
+  
+  // Use template set roles if they match the count exactly
+  if (formatConfig?.slide_roles && formatConfig.slide_roles.length === slideCount) {
+    const roles = [...formatConfig.slide_roles];
+    // Strip closing/cta role if CTA is disabled
+    if (!includeCta && roles.length > 0 && roles[roles.length - 1] === "closing") {
+      roles[roles.length - 1] = "insight";
+    }
+    return roles;
   }
-  return ["cover", "context", "insight", "insight", "closing"];
+  
+  // Build roles dynamically
+  const roles: string[] = ["cover"];
+  const contentSlots = includeCta ? slideCount - 2 : slideCount - 1;
+  
+  if (contentSlots > 0) {
+    roles.push("context");
+    for (let i = 1; i < contentSlots; i++) {
+      roles.push("insight");
+    }
+  }
+  
+  if (includeCta) {
+    roles.push("closing");
+  }
+  
+  return roles;
 }
 
 function getBackgroundStyle(styleGuide: StyleGuide | null, contentType: string): string {
@@ -238,13 +280,10 @@ function getBackgroundStyle(styleGuide: StyleGuide | null, contentType: string):
 }
 
 function buildImagePromptForSlide(basePrompt: string, tokens: BrandTokens | null, visualMode: string): string {
-  // brand_strict: never generate AI backgrounds
   if (visualMode === "brand_strict") return "";
-  // free mode: always generate
   if (visualMode === "free" || !tokens) {
     return `${basePrompt}. Professional healthcare image. No text. Ultra high resolution.`;
   }
-  // brand_guided: generate background
   const colors = tokens.palette.map((c) => c.hex).join(", ");
   return [
     `Background/illustration for healthcare content. Brand colors: ${colors}. Style: ${tokens.visual_tone}.`,
@@ -290,6 +329,8 @@ serve(async (req) => {
       brandId = null,
       visualMode = brandId ? "brand_guided" : "free",
       templateSetId = null,
+      slideCount: requestedSlideCount = null,
+      includeCta = true,
       tone = "profissional e engajador",
       targetAudience = "gestores de saúde",
       manualBriefing = null,
@@ -303,6 +344,8 @@ serve(async (req) => {
     let brandContext = "";
     const effectiveMode = brandId ? visualMode : "free";
     let activeStyleGuide: StyleGuide = DEFAULT_STYLE_GUIDE;
+    let resolvedTemplateSetId: string | null = null;
+    let templateSetName: string | null = null;
 
     if (brandId && effectiveMode !== "free") {
       console.log(`[generate-content] Loading brand: ${brandId}, mode: ${effectiveMode}`);
@@ -321,11 +364,8 @@ serve(async (req) => {
           .eq("brand_id", brandId)
           .limit(8);
         brandTokens = buildBrandTokens(brand, examples || []);
-        if (brand.style_guide) {
-          activeStyleGuide = brand.style_guide as StyleGuide;
-        }
 
-        // Load template set if specified, or use brand default
+        // ══════ HARD LOCK: Use ONLY the selected template set ══════
         const tsId = templateSetId || (brand as any).default_template_set_id;
         if (tsId) {
           const { data: tsData } = await supabase
@@ -336,42 +376,30 @@ serve(async (req) => {
 
           if (tsData?.template_set) {
             const ts = tsData.template_set as any;
-            // Merge template_set into activeStyleGuide
-            if (ts.formats) {
-              activeStyleGuide = {
-                ...activeStyleGuide,
-                formats: {
-                  ...activeStyleGuide.formats,
-                  ...Object.fromEntries(
-                    Object.entries(ts.formats).map(([fmt, fmtConfig]: [string, any]) => [
-                      fmt,
-                      {
-                        ...(activeStyleGuide.formats?.[fmt] || {}),
-                        ...fmtConfig,
-                      },
-                    ])
-                  ),
-                },
-              };
-              // Also merge brand_tokens from template set typography/logo
-              const formatConfig = ts.formats[contentType];
-              if (formatConfig) {
-                if (formatConfig.typography) {
-                  activeStyleGuide.brand_tokens = {
-                    ...activeStyleGuide.brand_tokens,
-                    typography: { ...activeStyleGuide.brand_tokens?.typography, ...formatConfig.typography },
-                  };
-                }
-                if (formatConfig.logo) {
-                  activeStyleGuide.brand_tokens = {
-                    ...activeStyleGuide.brand_tokens,
-                    logo: { ...activeStyleGuide.brand_tokens?.logo, ...formatConfig.logo },
-                  };
-                }
-              }
-            }
-            console.log(`[generate-content] Using template set: "${tsData.name}" (${tsId})`);
+            resolvedTemplateSetId = tsId;
+            templateSetName = tsData.name;
+            
+            // HARD LOCK: Build style guide EXCLUSIVELY from the template set
+            // Do NOT merge with brand base style guide - use template set as the sole source
+            activeStyleGuide = {
+              style_preset: ts.style_preset || brand.style_guide?.style_preset || "clean_minimal",
+              brand_tokens: {
+                ...(brand.style_guide?.brand_tokens || {}),
+                // Override with template set typography/logo if present
+                ...(ts.formats?.[contentType]?.typography ? { typography: ts.formats[contentType].typography } : {}),
+                ...(ts.formats?.[contentType]?.logo ? { logo: ts.formats[contentType].logo } : {}),
+              },
+              // Use ONLY the template set formats - no fallback to brand base
+              formats: ts.formats || {},
+              visual_patterns: ts.visual_patterns || brand.style_guide?.visual_patterns || [],
+              confidence: ts.confidence || "high",
+            };
+
+            console.log(`[generate-content] HARD-LOCK template set: "${tsData.name}" (${tsId}). Using ONLY this set's rules.`);
           }
+        } else if (brand.style_guide) {
+          // No template set selected - use brand base style guide
+          activeStyleGuide = brand.style_guide as StyleGuide;
         }
 
         brandContext = buildBrandContextBlock(brandTokens, activeStyleGuide);
@@ -380,10 +408,18 @@ serve(async (req) => {
     }
 
     const styleConfig = stylePrompts[contentStyle] || stylePrompts.news;
-    const slideCount = getSlideCount(contentType);
+    
+    // ══════ RESOLVE SLIDE COUNT & CTA ══════
+    const formatConfig = activeStyleGuide?.formats?.[contentType];
+    const ctaPolicy = (formatConfig as any)?.cta_policy as string | undefined;
+    
+    // Resolve CTA: honor the user toggle, but override if template set policy says "never"
+    const effectiveIncludeCta = ctaPolicy === "never" ? false : (ctaPolicy === "always" ? true : includeCta);
+    
+    const slideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig);
     const textLimits = getTextLimits(activeStyleGuide, contentType);
     const templatePool = getTemplatesForFormat(activeStyleGuide, contentType, effectiveMode);
-    const slideRoles = getSlideRoles(activeStyleGuide, contentType, slideCount);
+    const slideRoles = buildSlideRoles(contentType, slideCount, formatConfig, effectiveIncludeCta);
 
     // ══════ SOURCE CONTEXT ══════
     const fullContent = trend.fullContent || "";
@@ -402,6 +438,23 @@ serve(async (req) => {
       sourceBlock = `══════ FONTE ORIGINAL ══════\nTítulo: ${trend.title}\nDescrição: ${trend.description || "Sem descrição detalhada disponível."}\n══════ FIM DA FONTE ══════`;
     }
 
+    // ══════ TEMPLATE SET ENFORCEMENT BLOCK ══════
+    let templateSetEnforcementBlock = "";
+    if (templateSetName && resolvedTemplateSetId) {
+      templateSetEnforcementBlock = `
+══════ ESTILO SELECIONADO: "${templateSetName}" ══════
+REGRAS OBRIGATÓRIAS: Use APENAS as regras deste estilo.
+${formatConfig ? `CONFIGURAÇÃO DO FORMATO: ${JSON.stringify(formatConfig)}` : ""}
+PROIBIDO: Usar elementos visuais, tom ou estrutura típicos de OUTROS estilos da marca.
+Cada slide DEVE usar os templates definidos por este estilo. NÃO misture templates de estilos diferentes.
+══════ FIM DO ESTILO ══════`;
+    }
+
+    // ══════ CTA INSTRUCTION ══════
+    const ctaInstruction = effectiveIncludeCta
+      ? "O último slide (closing) deve ter um CTA natural e contextual, NÃO genérico como 'curta comente compartilhe'. Use algo específico ao tema."
+      : "NÃO inclua CTA final. O último slide deve ser um insight ou conclusão, NÃO um 'curta comente compartilhe'.";
+
     // ══════ SYSTEM PROMPT ══════
     const systemPrompt = `Você é um especialista sênior em marketing digital para o setor de saúde. Você cria conteúdos para Instagram que são criativos, informativos e PROFUNDAMENTE conectados com a fonte original.
 
@@ -412,24 +465,30 @@ REGRAS ABSOLUTAS:
 - NUNCA invente dados, estatísticas ou números que não estejam na fonte. Se não houver dados numéricos, use linguagem qualitativa.
 - Use ganchos criativos: pergunta provocativa, contraste, mini-história, analogia, mito vs verdade, checklist.
 - Emojis com moderação (máx 3 por slide).
-- ${contentStyle === "quote" ? "SEM CTAs, SEM 'saiba mais', SEM links." : "CTA apenas no slide final, leve e natural."}
+- ${ctaInstruction}
 - illustrationPrompt deve descrever APENAS backgrounds/ilustrações abstratas, NUNCA texto renderizado.
 - NUNCA invente dados médicos específicos, nomes de medicamentos ou procedimentos que não estejam na fonte.
 - O conteúdo deve demonstrar que você LEVE o artigo inteiro e extraiu os pontos mais relevantes.
+${templateSetEnforcementBlock}
 ${brandContext}`;
 
     // ══════ USER PROMPT ══════
-    const formatLabel = contentType === "post" ? "post para feed (1 slide, 1080x1350)" : contentType === "story" ? "story (1 slide, 1080x1920)" : `carrossel com ${slideCount} slides (1080x1350 cada)`;
+    const formatLabel = contentType === "post" ? "post para feed (1 slide, 1080x1350)" : contentType === "story" ? "story (1 slide, 1080x1920)" : `carrossel com EXATAMENTE ${slideCount} slides (1080x1350 cada)`;
 
     const slideRolesStr = contentType === "carousel"
       ? `Cada slide TEM um papel (role): ${slideRoles.join(", ")}.\nEstrutura: ${styleConfig.structure}`
       : `1 slide com role "cover".`;
 
+    // Build template assignments using role_to_template from the template set if available
+    const roleToTemplate = (formatConfig as any)?.role_to_template as Record<string, string> | undefined;
     const templateAssignments = contentType === "carousel"
       ? slideRoles.map((role, i) => {
-        const tpl = i === 0 ? templatePool[0] : i === slideCount - 1 ? (templatePool[templatePool.length - 1] || templatePool[0]) : (templatePool[Math.min(i, templatePool.length - 1)] || templatePool[1] || templatePool[0]);
-        return `Slide ${i + 1} (${role}): ${tpl}`;
-      }).join("\n")
+          if (roleToTemplate && roleToTemplate[role]) {
+            return `Slide ${i + 1} (${role}): ${roleToTemplate[role]}`;
+          }
+          const tpl = i === 0 ? templatePool[0] : i === slideCount - 1 ? (templatePool[templatePool.length - 1] || templatePool[0]) : (templatePool[Math.min(i, templatePool.length - 1)] || templatePool[1] || templatePool[0]);
+          return `Slide ${i + 1} (${role}): ${tpl}`;
+        }).join("\n")
       : `Template: ${templatePool[0]}.`;
 
     const userPrompt = `Crie um ${formatLabel} do Instagram.
@@ -483,7 +542,7 @@ Retorne EXATAMENTE este JSON (sem markdown, sem backticks):
 
 ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: ${slideRoles.join(", ")}.` : "Crie exatamente 1 slide."}`;
 
-    console.log(`[generate-content] Generating ${contentStyle} ${contentType}, mode=${effectiveMode}${brandTokens ? `, brand=${brandTokens.name}` : ""}, fullContent=${fullContent.length}chars...`);
+    console.log(`[generate-content] Generating ${contentStyle} ${contentType}, mode=${effectiveMode}${brandTokens ? `, brand=${brandTokens.name}` : ""}, slideCount=${slideCount}, includeCta=${effectiveIncludeCta}, templateSet=${templateSetName || 'none'}, fullContent=${fullContent.length}chars...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -528,9 +587,16 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
     // ══════ POST-PROCESS SLIDES ══════
     const processedSlides = (generated.slides || []).map((slide: any, i: number) => {
       const role = slide.role || slideRoles[i] || (i === 0 ? "cover" : i === (generated.slides.length - 1) ? "closing" : "insight");
-      const template = effectiveMode === "free"
-        ? "generic_free"
-        : (slide.template || templatePool[Math.min(i, templatePool.length - 1)]);
+      
+      // HARD LOCK: determine template from the SELECTED template set only
+      let template: string;
+      if (effectiveMode === "free") {
+        template = "generic_free";
+      } else if (roleToTemplate && roleToTemplate[role]) {
+        template = roleToTemplate[role];
+      } else {
+        template = slide.template || templatePool[Math.min(i, templatePool.length - 1)];
+      }
 
       return {
         role,
@@ -603,6 +669,9 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
       visualMode: effectiveMode,
       trendTitle: trend.title,
       brandId: brandId || null,
+      templateSetId: resolvedTemplateSetId,
+      slideCount,
+      includeCta: effectiveIncludeCta,
       brandSnapshot: brandTokens ? {
         name: brandTokens.name,
         palette: brandTokens.palette,
@@ -614,7 +683,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
       } : null,
     };
 
-    console.log(`[generate-content] SUCCESS: brandId=${brandId || 'null'}, palette=${brandTokens?.palette?.length ?? 0}, mode=${effectiveMode}, slides=${processedSlides.length}, sourceSummary=${(result.sourceSummary || '').length}chars, caption=${(result.caption || '').length}chars`);
+    console.log(`[generate-content] SUCCESS: brandId=${brandId || 'null'}, templateSet=${templateSetName || 'none'}, palette=${brandTokens?.palette?.length ?? 0}, mode=${effectiveMode}, slides=${processedSlides.length}, includeCta=${effectiveIncludeCta}`);
 
     return new Response(JSON.stringify({ success: true, content: result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

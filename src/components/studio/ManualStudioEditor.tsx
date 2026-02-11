@@ -17,6 +17,8 @@ import {
   Newspaper, Quote, Lightbulb, GraduationCap, HelpCircle,
   Wand2, Copy, Hash,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 
 // ── Types ──
 
@@ -102,6 +104,11 @@ export default function ManualStudioEditor() {
   const [selectedStyle, setSelectedStyle] = useState("news");
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Carousel controls
+  const [slideCountMode, setSlideCountMode] = useState<"auto" | "fixed">("auto");
+  const [slideCountVal, setSlideCountVal] = useState(5);
+  const [includeCta, setIncludeCta] = useState(true);
 
   // Data
   const [brands, setBrands] = useState<BrandOption[]>([]);
@@ -268,6 +275,8 @@ export default function ManualStudioEditor() {
           brandId,
           visualMode: effectiveMode,
           templateSetId: resolvedTsId,
+          slideCount: selectedFormat === "carousel" ? (slideCountMode === "auto" ? null : slideCountVal) : null,
+          includeCta: selectedFormat === "carousel" ? includeCta : true,
           manualBriefing,
         },
       });
@@ -338,6 +347,9 @@ export default function ManualStudioEditor() {
           visual_mode: selectedBrand === "free" ? "free" : "brand_strict",
           source_summary: sourceSummary || null,
           key_insights: keyInsights.length > 0 ? keyInsights : null,
+          template_set_id: resolvedTsId || null,
+          slide_count: selectedFormat === "carousel" ? slides.length : null,
+          include_cta: selectedFormat === "carousel" ? includeCta : true,
         })
         .select()
         .single();
@@ -433,7 +445,45 @@ export default function ManualStudioEditor() {
         </div>
       </div>
 
-      {/* Title + Notes + AI button */}
+      {/* Carousel Controls */}
+      {selectedFormat === "carousel" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-border p-4 bg-muted/20">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">Nº de slides</Label>
+              <Select value={slideCountMode} onValueChange={(v) => setSlideCountMode(v as "auto" | "fixed")}>
+                <SelectTrigger className="w-24 h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto</SelectItem>
+                  <SelectItem value="fixed">Fixo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {slideCountMode === "fixed" && (
+              <div className="flex items-center gap-3">
+                <Slider
+                  value={[slideCountVal]}
+                  onValueChange={([v]) => setSlideCountVal(v)}
+                  min={3}
+                  max={10}
+                  step={1}
+                  className="flex-1"
+                />
+                <span className="text-sm font-mono font-medium w-6 text-center">{slideCountVal}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-xs font-medium">Slide CTA final</Label>
+              <p className="text-[10px] text-muted-foreground">Fechamento com chamada para ação</p>
+            </div>
+            <Switch checked={includeCta} onCheckedChange={setIncludeCta} />
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="lg:col-span-5 space-y-3">
           <div className="space-y-1.5">

@@ -246,11 +246,14 @@ export type Database = {
           hashtags: string[] | null
           id: string
           image_urls: string[] | null
+          include_cta: boolean | null
           key_insights: string[] | null
           scheduled_at: string | null
+          slide_count: number | null
           slides: Json | null
           source_summary: string | null
           status: string | null
+          template_set_id: string | null
           title: string
           trend_id: string | null
           updated_at: string
@@ -266,11 +269,14 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
+          include_cta?: boolean | null
           key_insights?: string[] | null
           scheduled_at?: string | null
+          slide_count?: number | null
           slides?: Json | null
           source_summary?: string | null
           status?: string | null
+          template_set_id?: string | null
           title: string
           trend_id?: string | null
           updated_at?: string
@@ -286,11 +292,14 @@ export type Database = {
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
+          include_cta?: boolean | null
           key_insights?: string[] | null
           scheduled_at?: string | null
+          slide_count?: number | null
           slides?: Json | null
           source_summary?: string | null
           status?: string | null
+          template_set_id?: string | null
           title?: string
           trend_id?: string | null
           updated_at?: string
@@ -303,6 +312,13 @@ export type Database = {
             columns: ["brand_id"]
             isOneToOne: false
             referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_contents_template_set_id_fkey"
+            columns: ["template_set_id"]
+            isOneToOne: false
+            referencedRelation: "brand_template_sets"
             referencedColumns: ["id"]
           },
           {
