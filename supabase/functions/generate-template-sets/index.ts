@@ -229,7 +229,18 @@ Crie entre 1 e 4 template sets. Inclua APENAS formatos que os exemplos cobrem. A
 
     if (templateSets.length === 0) throw new Error("AI returned 0 template sets");
 
-    // Persist template sets
+    // Archive existing active sets for this brand
+    const { error: archiveError } = await supabase
+      .from("brand_template_sets")
+      .update({ status: "archived" })
+      .eq("brand_id", brandId)
+      .eq("status", "active");
+
+    if (archiveError) {
+      console.error("[generate-template-sets] Archive error:", archiveError);
+    }
+
+    // Persist new template sets
     const insertedSets = [];
     for (const ts of templateSets) {
       const { data: inserted, error: insertError } = await supabase
@@ -256,7 +267,7 @@ Crie entre 1 e 4 template sets. Inclua APENAS formatos que os exemplos cobrem. A
       insertedSets.push(inserted);
     }
 
-    // If brand has no default, set the first one
+    // Update default: set to first new set if current default is null or was archived
     if (insertedSets.length > 0) {
       const { data: currentBrand } = await supabase
         .from("brands")
@@ -264,7 +275,10 @@ Crie entre 1 e 4 template sets. Inclua APENAS formatos que os exemplos cobrem. A
         .eq("id", brandId)
         .single();
 
-      if (!currentBrand?.default_template_set_id) {
+      const currentDefault = currentBrand?.default_template_set_id;
+      const newIds = new Set(insertedSets.map((s: any) => s.id));
+      // If no default or default points to an archived (non-new) set, update it
+      if (!currentDefault || !newIds.has(currentDefault)) {
         await supabase
           .from("brands")
           .update({ default_template_set_id: insertedSets[0].id })
