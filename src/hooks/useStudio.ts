@@ -132,7 +132,7 @@ export function useAddBrandExample() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async (example: { brand_id: string; image_url: string; thumb_url?: string; description?: string; content_type?: string; type?: string; subtype?: string }) => {
+    mutationFn: async (example: { brand_id: string; image_url: string; thumb_url?: string; description?: string; content_type?: string; type?: string; subtype?: string; category_id?: string | null; category_mode?: string; carousel_group_id?: string | null; slide_index?: number | null }) => {
       const { data, error } = await supabase
         .from('brand_examples')
         .insert({
@@ -143,15 +143,24 @@ export function useAddBrandExample() {
           content_type: example.content_type || example.type || 'post',
           type: example.type || 'post',
           subtype: example.subtype,
-        })
+          category_id: example.category_id || null,
+          category_mode: example.category_mode || 'auto',
+          carousel_group_id: example.carousel_group_id || null,
+          slide_index: example.slide_index ?? null,
+        } as any)
         .select()
         .single();
       
       if (error) throw error;
+
+      // Mark brand dirty
+      await markBrandDirty(example.brand_id);
+
       return data as BrandExample;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['brand-examples', variables.brand_id] });
+      queryClient.invalidateQueries({ queryKey: ['brands'] });
       toast.success('Exemplo adicionado!');
     },
     onError: (error) => {
@@ -164,17 +173,26 @@ export function useUpdateBrandExample() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ id, brandId, type, subtype, description }: { id: string; brandId: string; type: string; subtype: string | null; description: string | null }) => {
+    mutationFn: async ({ id, brandId, type, subtype, description, category_id, category_mode }: { id: string; brandId: string; type: string; subtype: string | null; description: string | null; category_id?: string | null; category_mode?: string }) => {
+      const updatePayload: any = { type, subtype, description, content_type: type };
+      if (category_id !== undefined) updatePayload.category_id = category_id;
+      if (category_mode !== undefined) updatePayload.category_mode = category_mode;
+
       const { error } = await supabase
         .from('brand_examples')
-        .update({ type, subtype, description, content_type: type })
+        .update(updatePayload)
         .eq('id', id);
       
       if (error) throw error;
+
+      // Mark brand dirty
+      await markBrandDirty(brandId);
+
       return brandId;
     },
     onSuccess: (brandId) => {
       queryClient.invalidateQueries({ queryKey: ['brand-examples', brandId] });
+      queryClient.invalidateQueries({ queryKey: ['brands'] });
       toast.success('Exemplo atualizado!');
     },
     onError: (error) => {
@@ -190,14 +208,82 @@ export function useDeleteBrandExample() {
     mutationFn: async ({ id, brandId }: { id: string; brandId: string }) => {
       const { error } = await supabase.from('brand_examples').delete().eq('id', id);
       if (error) throw error;
+
+      // Mark brand dirty
+      await markBrandDirty(brandId);
+
       return brandId;
     },
     onSuccess: (brandId) => {
       queryClient.invalidateQueries({ queryKey: ['brand-examples', brandId] });
+      queryClient.invalidateQueries({ queryKey: ['brands'] });
       toast.success('Exemplo removido!');
     },
     onError: (error) => {
       toast.error('Erro ao remover exemplo: ' + error.message);
+    }
+  });
+}
+
+// Helper to mark brand dirty for template sets
+async function markBrandDirty(brandId: string) {
+  // We do a select + update to increment count
+  const { data: brand } = await supabase
+    .from('brands')
+    .select('template_sets_dirty_count')
+    .eq('id', brandId)
+    .single();
+  
+  const currentCount = (brand as any)?.template_sets_dirty_count || 0;
+  
+  await supabase.from('brands').update({
+    template_sets_dirty: true,
+    template_sets_dirty_count: currentCount + 1,
+  } as any).eq('id', brandId);
+}
+
+// ============ BRAND EXAMPLE CATEGORIES ============
+export function useBrandCategories(brandId: string) {
+  return useQuery({
+    queryKey: ['brand-categories', brandId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('brand_example_categories' as any)
+        .select('*')
+        .eq('brand_id', brandId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data as any[];
+    },
+    enabled: !!brandId,
+  });
+}
+
+export function useCreateBrandCategory() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ brandId, name, description }: { brandId: string; name: string; description?: string }) => {
+      const { data, error } = await supabase
+        .from('brand_example_categories' as any)
+        .insert({ brand_id: brandId, name, description: description || null })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data as any;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['brand-categories', variables.brandId] });
+      toast.success('Pilar editorial criado!');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('idx_brand_example_categories_unique_name')) {
+        toast.error('Já existe um pilar com esse nome');
+      } else {
+        toast.error('Erro ao criar pilar: ' + error.message);
+      }
     }
   });
 }

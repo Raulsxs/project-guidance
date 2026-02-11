@@ -267,7 +267,7 @@ Crie entre 1 e 4 template sets. Inclua APENAS formatos que os exemplos cobrem. A
       insertedSets.push(inserted);
     }
 
-    // Update default: set to first new set if current default is null or was archived
+    // Update default and reset dirty flags
     if (insertedSets.length > 0) {
       const { data: currentBrand } = await supabase
         .from("brands")
@@ -277,13 +277,20 @@ Crie entre 1 e 4 template sets. Inclua APENAS formatos que os exemplos cobrem. A
 
       const currentDefault = currentBrand?.default_template_set_id;
       const newIds = new Set(insertedSets.map((s: any) => s.id));
-      // If no default or default points to an archived (non-new) set, update it
+      const updatePayload: Record<string, any> = {
+        template_sets_dirty: false,
+        template_sets_dirty_count: 0,
+        template_sets_status: "ready",
+        template_sets_updated_at: new Date().toISOString(),
+        template_sets_last_error: null,
+      };
       if (!currentDefault || !newIds.has(currentDefault)) {
-        await supabase
-          .from("brands")
-          .update({ default_template_set_id: insertedSets[0].id })
-          .eq("id", brandId);
+        updatePayload.default_template_set_id = insertedSets[0].id;
       }
+      await supabase
+        .from("brands")
+        .update(updatePayload)
+        .eq("id", brandId);
     }
 
     console.log(`[generate-template-sets] Created ${insertedSets.length} template sets for brand ${brand.name}`);
@@ -298,6 +305,24 @@ Crie entre 1 e 4 template sets. Inclua APENAS formatos que os exemplos cobrem. A
 
   } catch (error) {
     console.error("[generate-template-sets] error:", error);
+    // Try to set error status on brand
+    try {
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader) {
+        const sb = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_ANON_KEY")!,
+          { global: { headers: { Authorization: authHeader } } }
+        );
+        const { brandId: bId } = await req.clone().json().catch(() => ({ brandId: null }));
+        if (bId) {
+          await sb.from("brands").update({
+            template_sets_status: "error",
+            template_sets_last_error: error instanceof Error ? error.message : "Unknown error",
+          }).eq("id", bId);
+        }
+      }
+    } catch (_) { /* best effort */ }
     return new Response(JSON.stringify({
       error: error instanceof Error ? error.message : "Unknown error",
     }), {
