@@ -24,6 +24,7 @@ interface DbTrend {
   relevance_score: number | null;
   keywords: string[] | null;
   created_at: string;
+  full_content: string | null;
 }
 
 interface TrendCardData {
@@ -37,6 +38,7 @@ interface TrendCardData {
   score: number;
   keywords: string[];
   description: string;
+  fullContent: string;
 }
 
 const Dashboard = () => {
@@ -78,6 +80,7 @@ const Dashboard = () => {
         score: (trend.relevance_score || 50) / 10,
         keywords: trend.keywords || [],
         description: trend.description || "",
+        fullContent: trend.full_content || "",
       }));
 
       setTrends(mappedTrends);
@@ -295,6 +298,7 @@ const Dashboard = () => {
             description: selectedTrend.description,
             theme: selectedTrend.theme,
             keywords: selectedTrend.keywords,
+            fullContent: selectedTrend.fullContent,
           },
           contentType: format,
           contentStyle: contentStyle,
