@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import SlideTemplateRenderer from "@/components/content/SlideTemplateRenderer";
+import { toPng } from "html-to-image";
+import JSZip from "jszip";
 import {
   CheckCircle,
   Download as DownloadIcon,
@@ -20,7 +23,22 @@ import {
 interface Slide {
   headline: string;
   body: string;
-  imagePrompt: string;
+  imagePrompt?: string;
+  illustrationPrompt?: string;
+  previewImage?: string;
+  templateHint?: string;
+  template?: string;
+  role?: string;
+  bullets?: string[];
+}
+
+interface BrandSnapshotData {
+  name: string;
+  palette: { name: string; hex: string }[] | string[];
+  fonts: { headings: string; body: string };
+  visual_tone: string;
+  logo_url: string | null;
+  style_guide?: any;
 }
 
 interface GeneratedContent {
@@ -34,31 +52,32 @@ interface GeneratedContent {
   status: string;
   image_urls: string[] | null;
   created_at: string;
+  brand_snapshot: BrandSnapshotData | null;
+  visual_mode?: string;
 }
 
 const DownloadPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  
+
   const [content, setContent] = useState<GeneratedContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
+  const [renderIndex, setRenderIndex] = useState<number | null>(null);
+  const renderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchContent = async () => {
       if (!id) return;
-      
       try {
         const { data, error } = await supabase
           .from("generated_contents")
           .select("*")
           .eq("id", id)
           .single();
-
         if (error) throw error;
-
         setContent(data as unknown as GeneratedContent);
       } catch (error) {
         console.error("Error fetching content:", error);
@@ -68,71 +87,115 @@ const DownloadPage = () => {
         setLoading(false);
       }
     };
-
     fetchContent();
   }, [id, navigate]);
 
+  const getDimensions = useCallback(() => {
+    if (!content) return { width: 1080, height: 1350 };
+    return content.content_type === "story"
+      ? { width: 1080, height: 1920 }
+      : { width: 1080, height: 1350 };
+  }, [content]);
+
+  const captureSlide = useCallback(async (index: number): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      setRenderIndex(index);
+      // Wait for render
+      setTimeout(async () => {
+        try {
+          if (!renderRef.current) throw new Error("Render container not found");
+          const dims = getDimensions();
+          const dataUrl = await toPng(renderRef.current, {
+            width: dims.width,
+            height: dims.height,
+            pixelRatio: 1,
+            quality: 0.95,
+            cacheBust: true,
+          });
+          const res = await fetch(dataUrl);
+          const blob = await res.blob();
+          resolve(blob);
+        } catch (err) {
+          reject(err);
+        }
+      }, 500);
+    });
+  }, [getDimensions]);
+
   const handleDownload = async () => {
     if (!content) return;
-    
+
     setDownloading(true);
-    setProgress(10);
-    setProgressMessage("Iniciando geração de imagens...");
+    setProgress(5);
+    setProgressMessage("Preparando renderização...");
 
     try {
-      // Call edge function to generate images and create ZIP
-      setProgress(20);
-      setProgressMessage(`Gerando ${content.slides.length} imagens com IA...`);
-      
-      const { data, error } = await supabase.functions.invoke("generate-download", {
-        body: { contentId: content.id },
+      const zip = new JSZip();
+      const dims = getDimensions();
+      const slides = content.slides;
+
+      for (let i = 0; i < slides.length; i++) {
+        setProgress(10 + Math.floor((i / slides.length) * 70));
+        setProgressMessage(`Renderizando slide ${i + 1} de ${slides.length}...`);
+        const blob = await captureSlide(i);
+        zip.file(`slide_${String(i + 1).padStart(2, "0")}.png`, blob);
+      }
+
+      // Add caption text file
+      setProgress(85);
+      setProgressMessage("Adicionando legendas...");
+
+      let captionText = `TÍTULO: ${content.title}\n\n`;
+      captionText += `LEGENDA:\n${content.caption}\n\n`;
+      if (content.hashtags?.length) {
+        captionText += `HASHTAGS:\n${content.hashtags.join(" ")}\n\n`;
+      }
+      captionText += `SLIDES:\n`;
+      slides.forEach((slide, i) => {
+        captionText += `\n--- Slide ${i + 1} ---\n`;
+        captionText += `Headline: ${slide.headline}\n`;
+        captionText += `Body: ${slide.body}\n`;
+        if (slide.bullets?.length) {
+          captionText += `Bullets:\n${slide.bullets.map((b) => `  • ${b}`).join("\n")}\n`;
+        }
       });
+      zip.file("legendas.txt", captionText);
 
-      if (error) throw error;
+      setProgress(90);
+      setProgressMessage("Gerando ZIP...");
 
-      if (!data.success) {
-        throw new Error(data.error || "Erro ao gerar download");
-      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
 
-      setProgress(80);
-      setProgressMessage("Preparando arquivo ZIP...");
-
-      // Convert base64 to blob and download
-      const byteCharacters = atob(data.zipBase64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: "application/zip" });
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
+      // Download
+      const url = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = data.filename || "content.zip";
+      const safeName = content.title.replace(/[^a-zA-Z0-9À-ú\s]/g, "").slice(0, 40).trim().replace(/\s+/g, "_");
+      link.download = `${safeName}_${dims.width}x${dims.height}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      URL.revokeObjectURL(url);
 
       setProgress(100);
       setProgressMessage("Download concluído!");
 
-      toast.success("Download concluído!", {
-        description: "Seu arquivo ZIP foi baixado com sucesso.",
-      });
+      // Update status
+      await supabase
+        .from("generated_contents")
+        .update({ status: "approved" })
+        .eq("id", content.id);
+      setContent((prev) => (prev ? { ...prev, status: "approved" } : null));
 
-      // Update content status
-      setContent(prev => prev ? { ...prev, status: "approved", image_urls: data.imageUrls } : null);
-
+      toast.success("Download concluído!", { description: "ZIP com PNGs e legendas." });
     } catch (error) {
       console.error("Download error:", error);
       toast.error("Erro ao gerar download", {
-        description: error instanceof Error ? error.message : "Tente novamente mais tarde.",
+        description: error instanceof Error ? error.message : "Tente novamente.",
       });
     } finally {
       setDownloading(false);
+      setRenderIndex(null);
       setProgress(0);
       setProgressMessage("");
     }
@@ -159,26 +222,29 @@ const DownloadPage = () => {
     );
   }
 
+  const dims = getDimensions();
+  const brandSnapshot = content.brand_snapshot || {
+    name: "Free",
+    palette: ["#667eea", "#764ba2", "#f093fb"],
+    fonts: { headings: "Inter", body: "Inter" },
+    visual_tone: "clean",
+    logo_url: null,
+  };
+
   return (
     <DashboardLayout>
       <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate("/dashboard")}
-          >
+          <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex-1">
             <h1 className="text-2xl font-heading font-bold text-foreground">
-              {content.status === "approved" ? "Conteúdo Aprovado!" : "Gerar Download"}
+              {content.status === "approved" ? "Conteúdo Aprovado!" : "Exportar Conteúdo"}
             </h1>
             <p className="text-muted-foreground">
-              {content.status === "approved" 
-                ? "Seu conteúdo está pronto para download" 
-                : "Clique no botão para gerar as imagens e baixar"}
+              Exporta PNGs renderizados com o template da marca
             </p>
           </div>
         </div>
@@ -191,14 +257,12 @@ const DownloadPage = () => {
                 <CheckCircle className="w-6 h-6 text-success-foreground" />
               </div>
               <div className="flex-1">
-                <h2 className="text-xl font-heading font-semibold text-foreground mb-1">
-                  {content.title}
-                </h2>
+                <h2 className="text-xl font-heading font-semibold text-foreground mb-1">{content.title}</h2>
                 <p className="text-muted-foreground">
-                  {content.content_type === "carousel" 
-                    ? `Carrossel com ${content.slides.length} slides` 
-                    : content.content_type === "story" 
-                    ? "Story para Instagram" 
+                  {content.content_type === "carousel"
+                    ? `Carrossel com ${content.slides.length} slides`
+                    : content.content_type === "story"
+                    ? "Story para Instagram"
                     : "Post para Feed"}
                 </p>
               </div>
@@ -206,39 +270,37 @@ const DownloadPage = () => {
           </CardContent>
         </Card>
 
-        {/* Content Details */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Download Section */}
           <Card className="shadow-card border-border/50">
             <CardHeader>
-              <CardTitle className="font-heading text-lg">Arquivos para Download</CardTitle>
+              <CardTitle className="font-heading text-lg">Exportar PNG/ZIP</CardTitle>
               <CardDescription>
-                {downloading ? "Gerando imagens com IA..." : "Clique para gerar e baixar todos os arquivos"}
+                {downloading ? "Renderizando slides com template..." : "Renderização determinística via template — sem depender de IA para layout"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* File List */}
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <FileImage className="w-5 h-5 text-primary" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium">Imagens do {content.content_type === "carousel" ? "Carrossel" : "Conteúdo"}</p>
-                    <p className="text-xs text-muted-foreground">{content.slides.length} arquivos PNG (1080×1350)</p>
+                    <p className="text-sm font-medium">
+                      {content.slides.length} imagens PNG
+                    </p>
+                    <p className="text-xs text-muted-foreground">{dims.width}×{dims.height}px — renderizado via template</p>
                   </div>
                   <Badge variant="outline">PNG</Badge>
                 </div>
-
                 <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <FileText className="w-5 h-5 text-accent" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium">Textos para Legenda</p>
-                    <p className="text-xs text-muted-foreground">Copys prontas para cada slide + hashtags</p>
+                    <p className="text-sm font-medium">Legendas + Hashtags</p>
+                    <p className="text-xs text-muted-foreground">Copys prontas para cada slide</p>
                   </div>
                   <Badge variant="outline">TXT</Badge>
                 </div>
               </div>
 
-              {/* Progress */}
               {downloading && (
                 <div className="space-y-2">
                   <Progress value={progress} className="h-2" />
@@ -246,29 +308,19 @@ const DownloadPage = () => {
                 </div>
               )}
 
-              {/* Download Button */}
-              <Button 
-                className="w-full gap-2" 
-                size="lg" 
-                onClick={handleDownload}
-                disabled={downloading}
-              >
+              <Button className="w-full gap-2" size="lg" onClick={handleDownload} disabled={downloading}>
                 {downloading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Gerando Imagens...
+                    Renderizando...
                   </>
                 ) : (
                   <>
                     <DownloadIcon className="w-5 h-5" />
-                    {content.image_urls?.length ? "Baixar Novamente (ZIP)" : "Gerar e Baixar (ZIP)"}
+                    Exportar PNG/ZIP
                   </>
                 )}
               </Button>
-
-              <p className="text-xs text-center text-muted-foreground">
-                O arquivo contém todas as imagens geradas por IA e textos prontos para uso
-              </p>
             </CardContent>
           </Card>
 
@@ -276,73 +328,56 @@ const DownloadPage = () => {
           <Card className="shadow-card border-border/50">
             <CardHeader>
               <CardTitle className="font-heading text-lg">Detalhes do Conteúdo</CardTitle>
-              <CardDescription>
-                Informações sobre o conteúdo gerado
-              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Formato</span>
-                  <Badge variant="secondary">
-                    {content.content_type === "carousel" 
-                      ? `Carrossel (${content.slides.length} slides)` 
-                      : content.content_type === "story" 
-                      ? "Story" 
-                      : "Post"}
-                  </Badge>
-                </div>
-
-                <div className="flex justify-between items-center py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Dimensões</span>
-                  <span className="text-sm font-medium">1080 × 1350px</span>
-                </div>
-
-                <div className="flex justify-between items-center py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Status</span>
-                  <Badge className={content.status === "approved" ? "bg-success/10 text-success" : "bg-primary/10 text-primary"}>
-                    {content.status === "approved" ? "Aprovado" : content.status === "draft" ? "Rascunho" : content.status}
-                  </Badge>
-                </div>
-
-                <div className="flex justify-between items-center py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Hashtags</span>
-                  <span className="text-sm font-medium">{content.hashtags?.length || 0} tags</span>
-                </div>
-
-                <div className="flex justify-between items-center py-2">
-                  <span className="text-sm text-muted-foreground">Gerado em</span>
-                  <span className="text-sm font-medium">
-                    {new Date(content.created_at).toLocaleDateString("pt-BR")}
-                  </span>
-                </div>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between items-center py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Formato</span>
+                <Badge variant="secondary">
+                  {content.content_type === "carousel"
+                    ? `Carrossel (${content.slides.length} slides)`
+                    : content.content_type === "story"
+                    ? "Story"
+                    : "Post"}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Dimensões</span>
+                <span className="text-sm font-medium">{dims.width} × {dims.height}px</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Modo Visual</span>
+                <Badge variant="outline">
+                  {content.visual_mode === "brand_strict" ? "🔒 Template" : content.visual_mode === "brand_guided" ? "🧭 Template + IA" : "🎨 Livre"}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-border/50">
+                <span className="text-sm text-muted-foreground">Hashtags</span>
+                <span className="text-sm font-medium">{content.hashtags?.length || 0} tags</span>
+              </div>
+              <div className="flex justify-between items-center py-2">
+                <span className="text-sm text-muted-foreground">Gerado em</span>
+                <span className="text-sm font-medium">{new Date(content.created_at).toLocaleDateString("pt-BR")}</span>
               </div>
 
-              {/* Caption Preview */}
               <div className="mt-4 p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground mb-1">Legenda:</p>
-                <p className="text-sm text-foreground line-clamp-3">
-                  {content.caption}
-                </p>
+                <p className="text-sm text-foreground line-clamp-3">{content.caption}</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Hashtags */}
-        {content.hashtags && content.hashtags.length > 0 && (
+        {content.hashtags?.length > 0 && (
           <Card className="shadow-card border-border/50">
             <CardHeader>
               <CardTitle className="font-heading text-lg flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-primary" />
                 Hashtags Sugeridas
               </CardTitle>
-              <CardDescription>
-                Clique para copiar todas as hashtags
-              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div 
+              <div
                 className="flex flex-wrap gap-2 cursor-pointer p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
                 onClick={() => {
                   navigator.clipboard.writeText(content.hashtags.join(" "));
@@ -350,27 +385,46 @@ const DownloadPage = () => {
                 }}
               >
                 {content.hashtags.map((tag, i) => (
-                  <Badge key={i} variant="outline" className="text-sm">
-                    {tag}
-                  </Badge>
+                  <Badge key={i} variant="outline" className="text-sm">{tag}</Badge>
                 ))}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Back to Dashboard */}
         <div className="flex justify-center pt-4">
-          <Button
-            variant="outline"
-            onClick={() => navigate("/dashboard")}
-            className="gap-2"
-          >
+          <Button variant="outline" onClick={() => navigate("/dashboard")} className="gap-2">
             <ArrowLeft className="w-4 h-4" />
             Voltar ao Dashboard
           </Button>
         </div>
       </div>
+
+      {/* Off-screen renderer for PNG capture */}
+      {renderIndex !== null && content.slides[renderIndex] && (
+        <div
+          style={{
+            position: "fixed",
+            left: "-9999px",
+            top: 0,
+            width: dims.width,
+            height: dims.height,
+            overflow: "hidden",
+            zIndex: -1,
+          }}
+        >
+          <div ref={renderRef} style={{ width: dims.width, height: dims.height }}>
+            <SlideTemplateRenderer
+              slide={content.slides[renderIndex]}
+              slideIndex={renderIndex}
+              totalSlides={content.slides.length}
+              brand={brandSnapshot as any}
+              template={content.slides[renderIndex].templateHint || content.slides[renderIndex].template}
+              dimensions={dims}
+            />
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
