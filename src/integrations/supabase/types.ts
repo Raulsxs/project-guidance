@@ -588,6 +588,7 @@ export type Database = {
           created_at: string
           description: string | null
           expires_at: string | null
+          full_content: string | null
           id: string
           is_active: boolean | null
           keywords: string[] | null
@@ -602,6 +603,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           expires_at?: string | null
+          full_content?: string | null
           id?: string
           is_active?: boolean | null
           keywords?: string[] | null
@@ -616,6 +618,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           expires_at?: string | null
+          full_content?: string | null
           id?: string
           is_active?: boolean | null
           keywords?: string[] | null

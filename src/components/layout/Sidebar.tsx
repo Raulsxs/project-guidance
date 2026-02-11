@@ -19,8 +19,8 @@ const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
   { icon: Wand2, label: "Studio IA", href: "/studio" },
   { icon: FileText, label: "Meus Conteúdos", href: "/contents" },
+  { icon: Palette, label: "Brand Kit", href: "/brands" },
   { icon: User, label: "Meu Perfil", href: "/profile" },
-  { icon: Palette, label: "Templates", href: "/templates" },
 ];
 
 const Sidebar = () => {
