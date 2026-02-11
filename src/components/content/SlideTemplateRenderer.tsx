@@ -22,7 +22,22 @@ interface BrandSnapshot {
   fonts: { headings: string; body: string };
   visual_tone: string;
   logo_url: string | null;
-  style_guide?: StyleGuide | null;
+  style_guide?: StyleGuideTokens | null;
+}
+
+interface StyleGuideTokens {
+  style_preset?: string;
+  brand_tokens?: {
+    palette_roles?: Record<string, string>;
+    typography?: { headline_weight?: number; body_weight?: number; uppercase_headlines?: boolean };
+    logo?: { preferred_position?: string; watermark_opacity?: number };
+  };
+  formats?: Record<string, {
+    recommended_templates?: string[];
+    layout_rules?: Record<string, number>;
+    text_limits?: { headline_chars?: number[]; body_chars?: number[] };
+  }>;
+  visual_patterns?: string[];
 }
 
 interface SlideTemplateRendererProps {
@@ -43,7 +58,48 @@ function getHex(palette: BrandSnapshot["palette"], index: number, fallback: stri
   return item.hex || fallback;
 }
 
-const WaveSVG = ({ color, position, height = "18%" }: { color: string; position: "bottom" | "top"; height?: string }) => (
+function getTypo(brand: BrandSnapshot) {
+  const typo = brand.style_guide?.brand_tokens?.typography;
+  return {
+    headlineWeight: typo?.headline_weight || 800,
+    bodyWeight: typo?.body_weight || 400,
+    uppercase: typo?.uppercase_headlines || false,
+  };
+}
+
+function getLogoConfig(brand: BrandSnapshot) {
+  const logo = brand.style_guide?.brand_tokens?.logo;
+  return {
+    position: logo?.preferred_position || "bottom-center",
+    opacity: logo?.watermark_opacity || 0.35,
+  };
+}
+
+function getLayoutRules(brand: BrandSnapshot, contentType: string) {
+  const format = brand.style_guide?.formats?.[contentType];
+  const rules = format?.layout_rules || {};
+  return {
+    waveHeightPct: (rules as any).wave_height_pct || 18,
+    safeMargin: (rules as any).safe_margin_px || 60,
+    safeTop: (rules as any).safe_top_px || 40,
+    safeBottom: (rules as any).safe_bottom_px || 80,
+    footerHeight: (rules as any).footer_height_px || 140,
+  };
+}
+
+function hasWavePattern(brand: BrandSnapshot): boolean {
+  const patterns = brand.style_guide?.visual_patterns;
+  if (!patterns) return true;
+  return patterns.some(p => p.toLowerCase().includes("wave"));
+}
+
+function getContentType(dimensions?: { width: number; height: number }): string {
+  if (!dimensions) return "post";
+  if (dimensions.height > 1500) return "story";
+  return "post";
+}
+
+const WaveSVG = ({ color, position, heightPct = 18, parentH }: { color: string; position: "bottom" | "top"; heightPct?: number; parentH?: number }) => (
   <svg
     viewBox="0 0 1080 200"
     preserveAspectRatio="none"
@@ -52,7 +108,7 @@ const WaveSVG = ({ color, position, height = "18%" }: { color: string; position:
       [position]: 0,
       left: 0,
       width: "100%",
-      height,
+      height: `${heightPct}%`,
       transform: position === "top" ? "rotate(180deg)" : undefined,
     }}
   >
@@ -60,12 +116,12 @@ const WaveSVG = ({ color, position, height = "18%" }: { color: string; position:
   </svg>
 );
 
-function SlideBadge({ slideIndex, totalSlides, dark }: { slideIndex: number; totalSlides: number; dark: string }) {
+function SlideBadge({ slideIndex, totalSlides, bgColor, textColor }: { slideIndex: number; totalSlides: number; bgColor: string; textColor: string }) {
   const label = slideIndex === 0 ? "CAPA" : slideIndex === totalSlides - 1 ? "CTA" : `${slideIndex + 1}/${totalSlides}`;
   return (
     <div style={{
       position: "absolute", top: 40, right: 40,
-      backgroundColor: dark, color: "#fff",
+      backgroundColor: bgColor, color: textColor,
       padding: "8px 20px", borderRadius: 20,
       fontSize: 18, fontWeight: 600, zIndex: 3,
     }}>
@@ -74,19 +130,41 @@ function SlideBadge({ slideIndex, totalSlides, dark }: { slideIndex: number; tot
   );
 }
 
-function LogoWatermark({ logoUrl }: { logoUrl: string | null }) {
-  if (!logoUrl) return null;
-  return (
-    <img
-      src={logoUrl}
-      alt="Logo"
-      style={{
-        position: "absolute", bottom: 40, left: "50%",
-        transform: "translateX(-50%)", height: 48,
-        objectFit: "contain", zIndex: 3,
-      }}
-    />
-  );
+function LogoMark({ brand, position, opacity }: { brand: BrandSnapshot; position: string; opacity: number }) {
+  if (!brand.logo_url && !brand.name) return null;
+
+  const posStyle: React.CSSProperties = {
+    position: "absolute",
+    zIndex: 3,
+    objectFit: "contain",
+  };
+
+  if (position.includes("top")) {
+    posStyle.top = 40;
+  } else {
+    posStyle.bottom = 40;
+  }
+
+  if (position.includes("right")) {
+    posStyle.right = 40;
+  } else if (position.includes("left")) {
+    posStyle.left = 40;
+  } else {
+    posStyle.left = "50%";
+    posStyle.transform = "translateX(-50%)";
+  }
+
+  if (brand.logo_url) {
+    return (
+      <img
+        src={brand.logo_url}
+        alt="Logo"
+        style={{ ...posStyle, height: 48, opacity }}
+      />
+    );
+  }
+
+  return null;
 }
 
 function AccentBar({ color, style }: { color: string; style?: React.CSSProperties }) {
@@ -95,13 +173,17 @@ function AccentBar({ color, style }: { color: string; style?: React.CSSPropertie
 
 // ══════ TEMPLATES ══════
 
-// 1. Wave Cover (capa / closing)
 const WaveCoverTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
   const bg = getHex(brand.palette, 0, "#a4d3eb");
   const dark = getHex(brand.palette, 1, "#10559a");
   const accent = getHex(brand.palette, 2, "#c52244");
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1350;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const ct = getContentType(dimensions);
+  const layout = getLayoutRules(brand, ct);
+  const showWave = hasWavePattern(brand);
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column" }}>
@@ -110,23 +192,22 @@ const WaveCoverTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }
           <img src={slide.previewImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         </div>
       )}
-      <WaveSVG color="#ffffff" position="bottom" height="20%" />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 60px", zIndex: 2 }}>
+      {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={layout.waveHeightPct} />}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: `80px ${layout.safeMargin}px`, zIndex: 2 }}>
         <AccentBar color={accent} style={{ marginBottom: 32 }} />
-        <h1 style={{ color: dark, fontSize: 64, fontWeight: 800, lineHeight: 1.15, marginBottom: 24, letterSpacing: "-0.02em" }}>
+        <h1 style={{ color: dark, fontSize: 64, fontWeight: typo.headlineWeight, lineHeight: 1.15, marginBottom: 24, letterSpacing: "-0.02em", textTransform: typo.uppercase ? "uppercase" : undefined }}>
           {slide.headline}
         </h1>
-        <p style={{ color: dark, fontSize: 32, fontWeight: 400, lineHeight: 1.5, opacity: 0.8, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>
+        <p style={{ color: dark, fontSize: 32, fontWeight: typo.bodyWeight, lineHeight: 1.5, opacity: 0.8, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>
           {slide.body}
         </p>
       </div>
-      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} dark={dark} />
-      <LogoWatermark logoUrl={brand.logo_url} />
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={dark} textColor="#fff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
     </div>
   );
 };
 
-// 2. Wave Text Card (context / insight text)
 const WaveTextCardTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
   const bg = getHex(brand.palette, 0, "#a4d3eb");
   const dark = getHex(brand.palette, 1, "#10559a");
@@ -134,22 +215,26 @@ const WaveTextCardTemplate = ({ slide, brand, dimensions, slideIndex, totalSlide
   const cardBg = getHex(brand.palette, 3, "#f5eaee");
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1350;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const ct = getContentType(dimensions);
+  const layout = getLayoutRules(brand, ct);
+  const showWave = hasWavePattern(brand);
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      <WaveSVG color="#ffffff" position="bottom" />
-      <div style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: "48px 40px", margin: "0 48px", maxWidth: "85%", border: `3px solid ${cardBg}`, boxShadow: "0 8px 32px rgba(0,0,0,0.08)", zIndex: 2, textAlign: "center" }}>
+      {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={layout.waveHeightPct} />}
+      <div style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: `48px ${layout.safeMargin - 20}px`, margin: `0 ${layout.safeMargin - 12}px`, maxWidth: "85%", border: `3px solid ${cardBg}`, boxShadow: "0 8px 32px rgba(0,0,0,0.08)", zIndex: 2, textAlign: "center" }}>
         <AccentBar color={accent} style={{ margin: "0 auto 28px", width: 48, height: 4 }} />
-        <h2 style={{ color: dark, fontSize: 48, fontWeight: 700, lineHeight: 1.25, marginBottom: 20 }}>{slide.headline}</h2>
-        <p style={{ color: dark, fontSize: 28, fontWeight: 400, lineHeight: 1.6, opacity: 0.75, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+        <h2 style={{ color: dark, fontSize: 48, fontWeight: typo.headlineWeight, lineHeight: 1.25, marginBottom: 20, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
+        <p style={{ color: dark, fontSize: 28, fontWeight: typo.bodyWeight, lineHeight: 1.6, opacity: 0.75, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
       </div>
-      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} dark={dark} />
-      <LogoWatermark logoUrl={brand.logo_url} />
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={dark} textColor="#fff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
     </div>
   );
 };
 
-// 3. Wave Bullets (insight with list)
 const WaveBulletsTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
   const bg = getHex(brand.palette, 0, "#a4d3eb");
   const dark = getHex(brand.palette, 1, "#10559a");
@@ -157,13 +242,18 @@ const WaveBulletsTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1350;
   const bullets = slide.bullets || [];
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const ct = getContentType(dimensions);
+  const layout = getLayoutRules(brand, ct);
+  const showWave = hasWavePattern(brand);
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column" }}>
-      <WaveSVG color="#ffffff" position="bottom" height="15%" />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 60px", zIndex: 2 }}>
+      {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={Math.max(layout.waveHeightPct - 3, 12)} />}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: `80px ${layout.safeMargin}px`, zIndex: 2 }}>
         <AccentBar color={accent} style={{ marginBottom: 24 }} />
-        <h2 style={{ color: dark, fontSize: 52, fontWeight: 800, lineHeight: 1.2, marginBottom: 32 }}>{slide.headline}</h2>
+        <h2 style={{ color: dark, fontSize: 52, fontWeight: typo.headlineWeight, lineHeight: 1.2, marginBottom: 32, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
         {bullets.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             {bullets.map((bullet, i) => (
@@ -171,49 +261,56 @@ const WaveBulletsTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides
                 <div style={{ width: 36, height: 36, borderRadius: "50%", backgroundColor: accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, flexShrink: 0, marginTop: 2 }}>
                   {i + 1}
                 </div>
-                <p style={{ color: dark, fontSize: 28, lineHeight: 1.5, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{bullet}</p>
+                <p style={{ color: dark, fontSize: 28, lineHeight: 1.5, fontWeight: typo.bodyWeight, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{bullet}</p>
               </div>
             ))}
           </div>
         ) : (
-          <p style={{ color: dark, fontSize: 28, lineHeight: 1.6, opacity: 0.8, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+          <p style={{ color: dark, fontSize: 28, lineHeight: 1.6, opacity: 0.8, fontWeight: typo.bodyWeight, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
         )}
       </div>
-      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} dark={dark} />
-      <LogoWatermark logoUrl={brand.logo_url} />
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={dark} textColor="#fff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
     </div>
   );
 };
 
-// 4. Wave Closing (CTA slide)
 const WaveClosingTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
-  const bg = getHex(brand.palette, 1, "#10559a"); // Dark bg for closing
+  const bg = getHex(brand.palette, 1, "#10559a");
   const light = getHex(brand.palette, 0, "#a4d3eb");
   const accent = getHex(brand.palette, 2, "#c52244");
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1350;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const ct = getContentType(dimensions);
+  const layout = getLayoutRules(brand, ct);
+  const showWave = hasWavePattern(brand);
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-      <WaveSVG color={light} position="bottom" height="20%" />
-      <div style={{ zIndex: 2, padding: "60px", maxWidth: "85%" }}>
+      {showWave && <WaveSVG color={light} position="bottom" heightPct={layout.waveHeightPct} />}
+      <div style={{ zIndex: 2, padding: `${layout.safeMargin}px`, maxWidth: "85%" }}>
         <AccentBar color={accent} style={{ margin: "0 auto 32px", width: 60 }} />
-        <h2 style={{ color: "#ffffff", fontSize: 56, fontWeight: 800, lineHeight: 1.2, marginBottom: 24 }}>{slide.headline}</h2>
-        <p style={{ color: "#ffffff", fontSize: 30, fontWeight: 400, lineHeight: 1.5, opacity: 0.85, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+        <h2 style={{ color: "#ffffff", fontSize: 56, fontWeight: typo.headlineWeight, lineHeight: 1.2, marginBottom: 24, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
+        <p style={{ color: "#ffffff", fontSize: 30, fontWeight: typo.bodyWeight, lineHeight: 1.5, opacity: 0.85, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
       </div>
-      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} dark="#ffffff33" />
-      <LogoWatermark logoUrl={brand.logo_url} />
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor="#ffffff33" textColor="#fff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
     </div>
   );
 };
 
-// 5. Story Cover (1080x1920)
 const StoryCoverTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
   const bg = getHex(brand.palette, 0, "#a4d3eb");
   const dark = getHex(brand.palette, 1, "#10559a");
   const accent = getHex(brand.palette, 2, "#c52244");
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1920;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const layout = getLayoutRules(brand, "story");
+  const showWave = hasWavePattern(brand);
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column" }}>
@@ -222,40 +319,40 @@ const StoryCoverTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides 
           <img src={slide.previewImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         </div>
       )}
-      <WaveSVG color="#ffffff" position="bottom" height="15%" />
-      {/* Safe area: top 14%, bottom 10% */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "270px 60px 192px", zIndex: 2 }}>
+      {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={15} />}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: `${layout.safeTop}px ${layout.safeMargin}px ${layout.safeBottom}px`, zIndex: 2 }}>
         <AccentBar color={accent} style={{ marginBottom: 40 }} />
-        <h1 style={{ color: dark, fontSize: 72, fontWeight: 900, lineHeight: 1.1, marginBottom: 32, letterSpacing: "-0.02em" }}>{slide.headline}</h1>
-        <p style={{ color: dark, fontSize: 36, fontWeight: 400, lineHeight: 1.5, opacity: 0.8, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+        <h1 style={{ color: dark, fontSize: 72, fontWeight: 900, lineHeight: 1.1, marginBottom: 32, letterSpacing: "-0.02em", textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h1>
+        <p style={{ color: dark, fontSize: 36, fontWeight: typo.bodyWeight, lineHeight: 1.5, opacity: 0.8, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
       </div>
-      <LogoWatermark logoUrl={brand.logo_url} />
+      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
     </div>
   );
 };
 
-// 6. Story Tip (1080x1920 with card)
 const StoryTipTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
   const bg = getHex(brand.palette, 0, "#a4d3eb");
   const dark = getHex(brand.palette, 1, "#10559a");
   const accent = getHex(brand.palette, 2, "#c52244");
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1920;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const showWave = hasWavePattern(brand);
 
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      <WaveSVG color="#ffffff" position="bottom" height="12%" />
+      {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={12} />}
       <div style={{ backgroundColor: "#ffffff", borderRadius: 32, padding: "56px 48px", margin: "0 48px", maxWidth: "88%", boxShadow: "0 12px 40px rgba(0,0,0,0.1)", zIndex: 2, textAlign: "center" }}>
         <AccentBar color={accent} style={{ margin: "0 auto 32px", width: 48, height: 5 }} />
-        <h2 style={{ color: dark, fontSize: 56, fontWeight: 700, lineHeight: 1.2, marginBottom: 24 }}>{slide.headline}</h2>
-        <p style={{ color: dark, fontSize: 32, fontWeight: 400, lineHeight: 1.5, opacity: 0.75, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+        <h2 style={{ color: dark, fontSize: 56, fontWeight: typo.headlineWeight, lineHeight: 1.2, marginBottom: 24, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
+        <p style={{ color: dark, fontSize: 32, fontWeight: typo.bodyWeight, lineHeight: 1.5, opacity: 0.75, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
       </div>
-      <LogoWatermark logoUrl={brand.logo_url} />
+      <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
     </div>
   );
 };
 
-// 7. Generic Free (no brand identity)
 const GenericFreeTemplate = ({ slide, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1350;
@@ -291,11 +388,11 @@ const TemplateMap: Record<string, React.FC<SlideTemplateRendererProps>> = {
   story_cover: StoryCoverTemplate,
   story_tip: StoryTipTemplate,
   generic_free: GenericFreeTemplate,
-  solid_cover: WaveCoverTemplate, // fallback alias
+  solid_cover: WaveCoverTemplate,
 };
 
 export function getTemplateForSlide(slideIndex: number, totalSlides: number, styleGuide?: StyleGuide | null): string {
-  const recommended = styleGuide?.recommended_templates || ["wave_cover", "wave_text_card"];
+  const recommended = (styleGuide as any)?.recommended_templates || (styleGuide as any)?.formats?.carousel?.recommended_templates || ["wave_cover", "wave_text_card"];
   if (slideIndex === 0) return recommended[0] || "wave_cover";
   if (slideIndex === totalSlides - 1) return recommended[recommended.length > 2 ? recommended.length - 1 : 0] || "wave_closing";
   return recommended[1] || "wave_text_card";
@@ -304,7 +401,7 @@ export function getTemplateForSlide(slideIndex: number, totalSlides: number, sty
 // ══════ MAIN RENDERER ══════
 
 const SlideTemplateRenderer = (props: SlideTemplateRendererProps) => {
-  const templateName = props.template || props.slide.templateHint || props.slide.template || getTemplateForSlide(props.slideIndex, props.totalSlides, props.brand.style_guide);
+  const templateName = props.template || props.slide.templateHint || props.slide.template || getTemplateForSlide(props.slideIndex, props.totalSlides, props.brand.style_guide as any);
   const Component = TemplateMap[templateName] || WaveCoverTemplate;
   return <Component {...props} />;
 };
