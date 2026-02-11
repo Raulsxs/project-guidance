@@ -225,10 +225,19 @@ function getSlideRoles(styleGuide: StyleGuide | null, contentType: string, slide
   return ["cover", "context", "insight", "insight", "closing"];
 }
 
-function buildImagePromptForSlide(basePrompt: string, tokens: BrandTokens | null, visualMode: string): string {
-  if (visualMode === "brand_strict" || !tokens) return "";
-  if (visualMode === "free") return `${basePrompt}. Professional healthcare image. No text. Ultra high resolution.`;
+function getBackgroundStyle(styleGuide: StyleGuide | null, contentType: string): string {
+  const rules = styleGuide?.formats?.[contentType]?.layout_rules as Record<string, unknown> | undefined;
+  return (rules?.background_style as string) || "gradient";
+}
 
+function buildImagePromptForSlide(basePrompt: string, tokens: BrandTokens | null, visualMode: string): string {
+  // brand_strict: never generate AI backgrounds
+  if (visualMode === "brand_strict") return "";
+  // free mode: always generate
+  if (visualMode === "free" || !tokens) {
+    return `${basePrompt}. Professional healthcare image. No text. Ultra high resolution.`;
+  }
+  // brand_guided: generate background
   const colors = tokens.palette.map((c) => c.hex).join(", ");
   return [
     `Background/illustration for healthcare content. Brand colors: ${colors}. Style: ${tokens.visual_tone}.`,
@@ -466,9 +475,12 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
       };
     });
 
-    // ══════ IMAGE GENERATION (only for brand_guided and free modes) ══════
-    if (effectiveMode === "brand_guided" || effectiveMode === "free") {
-      console.log(`[generate-content] Generating background images for ${processedSlides.length} slides (mode=${effectiveMode})...`);
+    // ══════ IMAGE GENERATION (conditional on background_style) ══════
+    const bgStyle = getBackgroundStyle(activeStyleGuide, contentType);
+    const shouldGenerateImages = effectiveMode !== "brand_strict" && bgStyle === "image";
+
+    if (shouldGenerateImages) {
+      console.log(`[generate-content] Generating background images for ${processedSlides.length} slides (mode=${effectiveMode}, bgStyle=${bgStyle})...`);
       for (let i = 0; i < processedSlides.length; i++) {
         const slide = processedSlides[i];
         const prompt = buildImagePromptForSlide(slide.illustrationPrompt, brandTokens, effectiveMode);
@@ -503,7 +515,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
         }
       }
     } else {
-      console.log(`[generate-content] BRAND_STRICT mode: skipping AI image generation, templates only.`);
+      console.log(`[generate-content] Skipping AI image generation: mode=${effectiveMode}, bgStyle=${bgStyle}. Templates handle layout.`);
     }
 
     // ══════ RESPONSE ══════
