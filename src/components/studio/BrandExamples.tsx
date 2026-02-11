@@ -6,9 +6,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useBrandExamples, useAddBrandExample, useDeleteBrandExample, useUpdateBrandExample } from "@/hooks/useStudio";
+import { useBrandExamples, useAddBrandExample, useDeleteBrandExample, useUpdateBrandExample, useBrandCategories, useCreateBrandCategory } from "@/hooks/useStudio";
 import { supabase } from "@/integrations/supabase/client";
-import { Upload, Image, X, Edit, Sparkles, Loader2 } from "lucide-react";
+import { Upload, Image, X, Edit, Sparkles, Loader2, Plus, Layers } from "lucide-react";
 import { toast } from "sonner";
 
 const EXAMPLE_TYPES = [
@@ -33,26 +33,48 @@ interface BrandExamplesProps {
 
 export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAnalyzing }: BrandExamplesProps) {
   const { data: examples, isLoading } = useBrandExamples(brandId);
+  const { data: categories } = useBrandCategories(brandId);
   const addExample = useAddBrandExample();
   const deleteExample = useDeleteBrandExample();
   const updateExample = useUpdateBrandExample();
+  const createCategory = useCreateBrandCategory();
 
   const [uploading, setUploading] = useState(false);
   const [description, setDescription] = useState("");
   const [uploadType, setUploadType] = useState("post");
   const [uploadSubtype, setUploadSubtype] = useState<string>("");
+  const [categoryMode, setCategoryMode] = useState<string>("auto");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // New category dialog
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatDesc, setNewCatDesc] = useState("");
+
+  // Carousel organizer
+  const [carouselGroup, setCarouselGroup] = useState<any[]>([]);
+  const [showCarouselOrganizer, setShowCarouselOrganizer] = useState(false);
 
   // Edit dialog state
   const [editingExample, setEditingExample] = useState<any>(null);
   const [editType, setEditType] = useState("post");
   const [editSubtype, setEditSubtype] = useState<string>("");
   const [editDescription, setEditDescription] = useState("");
+  const [editCategoryMode, setEditCategoryMode] = useState("auto");
+  const [editCategoryId, setEditCategoryId] = useState<string>("");
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
+    // Multi-upload for carousel
+    if (uploadType === "carousel" && files.length > 1) {
+      await handleCarouselMultiUpload(files);
+      return;
+    }
+
+    const file = files[0];
     if (!file.type.startsWith("image/")) {
       toast.error("Apenas imagens são aceitas");
       return;
@@ -78,6 +100,8 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
         content_type: uploadType,
         type: uploadType,
         subtype: uploadSubtype || undefined,
+        category_id: categoryMode === "manual" ? selectedCategoryId || null : null,
+        category_mode: categoryMode,
       });
 
       setDescription("");
@@ -85,6 +109,57 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       toast.error("Erro ao fazer upload: " + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCarouselMultiUpload = async (files: FileList) => {
+    setUploading(true);
+    const groupId = crypto.randomUUID();
+    const uploaded: any[] = [];
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!file.type.startsWith("image/")) continue;
+
+        const fileName = `${brandId}/${Date.now()}-${i}-${file.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from("content-images")
+          .upload(fileName, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from("content-images")
+          .getPublicUrl(fileName);
+
+        const result = await addExample.mutateAsync({
+          brand_id: brandId,
+          image_url: publicUrl,
+          description: description || undefined,
+          content_type: "carousel",
+          type: "carousel",
+          subtype: undefined,
+          category_id: categoryMode === "manual" ? selectedCategoryId || null : null,
+          category_mode: categoryMode,
+          carousel_group_id: groupId,
+          slide_index: i,
+        });
+
+        uploaded.push(result);
+      }
+
+      toast.success(`${uploaded.length} slides do carrossel enviados!`);
+      setDescription("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+
+      // Open organizer
+      setCarouselGroup(uploaded);
+      setShowCarouselOrganizer(true);
+    } catch (error: any) {
+      toast.error("Erro no multi-upload: " + error.message);
     } finally {
       setUploading(false);
     }
@@ -101,6 +176,8 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
     setEditType(example.type || "post");
     setEditSubtype(example.subtype || "");
     setEditDescription(example.description || "");
+    setEditCategoryMode(example.category_mode || "auto");
+    setEditCategoryId(example.category_id || "");
   };
 
   const handleSaveEdit = async () => {
@@ -111,12 +188,45 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
       type: editType,
       subtype: editSubtype || null,
       description: editDescription || null,
+      category_id: editCategoryMode === "manual" ? editCategoryId || null : null,
+      category_mode: editCategoryMode,
     });
     setEditingExample(null);
   };
 
+  const handleCreateCategory = async () => {
+    if (!newCatName.trim()) return;
+    const result = await createCategory.mutateAsync({
+      brandId,
+      name: newCatName.trim(),
+      description: newCatDesc.trim() || undefined,
+    });
+    setSelectedCategoryId(result.id);
+    setCategoryMode("manual");
+    setNewCatName("");
+    setNewCatDesc("");
+    setShowNewCategory(false);
+  };
+
+  const handleSaveCarouselOrganizer = async () => {
+    try {
+      for (const item of carouselGroup) {
+        await supabase
+          .from("brand_examples")
+          .update({ slide_index: item.slide_index, subtype: item.subtype || null } as any)
+          .eq("id", item.id);
+      }
+      toast.success("Carrossel organizado!");
+      setShowCarouselOrganizer(false);
+      setCarouselGroup([]);
+    } catch (error: any) {
+      toast.error("Erro ao salvar: " + error.message);
+    }
+  };
+
   const typeLabel = (type: string) => EXAMPLE_TYPES.find((t) => t.value === type)?.label || type;
   const subtypeLabel = (subtype: string) => EXAMPLE_SUBTYPES.find((t) => t.value === subtype)?.label || subtype;
+  const categoryName = (catId: string) => categories?.find((c: any) => c.id === catId)?.name || "";
 
   return (
     <div className="space-y-4">
@@ -124,7 +234,7 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
         <div>
           <h3 className="text-sm font-medium">Exemplos de Referência</h3>
           <p className="text-xs text-muted-foreground">
-            Imagens classificadas por formato para a IA se basear
+            Imagens classificadas por formato e pilar editorial
           </p>
         </div>
         {onAnalyzeStyle && (
@@ -156,7 +266,41 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Papel do slide {uploadType === "carousel" ? "*" : "(opcional)"}</Label>
+            <Label className="text-xs">Pilar editorial *</Label>
+            <div className="flex gap-1">
+              <Select
+                value={categoryMode === "auto" ? "auto" : selectedCategoryId || "auto"}
+                onValueChange={(v) => {
+                  if (v === "auto") {
+                    setCategoryMode("auto");
+                    setSelectedCategoryId("");
+                  } else if (v === "__new__") {
+                    setShowNewCategory(true);
+                  } else {
+                    setCategoryMode("manual");
+                    setSelectedCategoryId(v);
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Auto (recomendado)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (recomendado)</SelectItem>
+                  {categories?.map((cat: any) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                  <SelectItem value="__new__">
+                    <span className="flex items-center gap-1"><Plus className="w-3 h-3" /> Novo pilar</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+        {uploadType !== "carousel" && (
+          <div className="space-y-1">
+            <Label className="text-xs">Papel do slide (opcional)</Label>
             <Select value={uploadSubtype} onValueChange={setUploadSubtype}>
               <SelectTrigger className="h-9">
                 <SelectValue placeholder="Selecione..." />
@@ -169,7 +313,7 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
               </SelectContent>
             </Select>
           </div>
-        </div>
+        )}
         <div className="flex items-center gap-3">
           <Input
             placeholder="Descrição do exemplo (opcional)"
@@ -181,15 +325,16 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple={uploadType === "carousel"}
             onChange={handleFileUpload}
             className="hidden"
-            disabled={uploading || (uploadType === "carousel" && !uploadSubtype)}
+            disabled={uploading}
           />
           <Button
             variant="outline"
             size="sm"
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || (uploadType === "carousel" && (!uploadSubtype || uploadSubtype === "none"))}
+            disabled={uploading}
           >
             {uploading ? (
               <span className="flex items-center gap-2">
@@ -199,11 +344,16 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
             ) : (
               <span className="flex items-center gap-2">
                 <Upload className="w-4 h-4" />
-                Upload
+                {uploadType === "carousel" ? "Upload (multi)" : "Upload"}
               </span>
             )}
           </Button>
         </div>
+        {uploadType === "carousel" && (
+          <p className="text-[10px] text-muted-foreground">
+            Selecione várias imagens para criar um grupo de carrossel.
+          </p>
+        )}
       </div>
 
       {/* Examples grid */}
@@ -247,6 +397,21 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
                     {subtypeLabel(example.subtype)}
                   </Badge>
                 )}
+                {example.category_mode === "manual" && example.category_id ? (
+                  <Badge variant="default" className="text-[9px] px-1.5 py-0 h-4">
+                    {categoryName(example.category_id)}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 bg-background/80 opacity-60">
+                    Auto
+                  </Badge>
+                )}
+                {example.carousel_group_id && (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 bg-background/80">
+                    <Layers className="w-2.5 h-2.5 mr-0.5" />
+                    {example.slide_index != null ? `#${example.slide_index + 1}` : ""}
+                  </Badge>
+                )}
               </div>
             </div>
           ))}
@@ -257,6 +422,70 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
           <p className="text-xs">Nenhum exemplo ainda</p>
         </div>
       )}
+
+      {/* New Category Dialog */}
+      <Dialog open={showNewCategory} onOpenChange={setShowNewCategory}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Novo Pilar Editorial</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Nome *</Label>
+              <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="Ex: Caso Clínico, Institucional..." />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Descrição (opcional)</Label>
+              <Input value={newCatDesc} onChange={(e) => setNewCatDesc(e.target.value)} placeholder="Breve descrição do pilar" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleCreateCategory} disabled={!newCatName.trim() || createCategory.isPending} size="sm">
+              {createCategory.isPending ? "Criando..." : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Carousel Organizer Dialog */}
+      <Dialog open={showCarouselOrganizer} onOpenChange={setShowCarouselOrganizer}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Organizar Carrossel ({carouselGroup.length} slides)</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-96 overflow-y-auto py-2">
+            {carouselGroup
+              .sort((a, b) => (a.slide_index ?? 0) - (b.slide_index ?? 0))
+              .map((item, idx) => (
+                <div key={item.id} className="flex items-center gap-3 p-2 border border-border rounded-lg">
+                  <span className="text-xs text-muted-foreground font-mono w-6">#{idx + 1}</span>
+                  <img src={item.image_url} alt="" className="w-12 h-12 object-cover rounded" />
+                  <Select
+                    value={item.subtype || "none"}
+                    onValueChange={(v) => {
+                      setCarouselGroup(prev =>
+                        prev.map(g => g.id === item.id ? { ...g, subtype: v === "none" ? null : v } : g)
+                      );
+                    }}
+                  >
+                    <SelectTrigger className="h-8 flex-1">
+                      <SelectValue placeholder="Papel..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sem papel</SelectItem>
+                      {EXAMPLE_SUBTYPES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSaveCarouselOrganizer} size="sm">Salvar organização</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={!!editingExample} onOpenChange={(open) => { if (!open) setEditingExample(null); }}>
@@ -284,6 +513,29 @@ export default function BrandExamples({ brandId, brandName, onAnalyzeStyle, isAn
                   <SelectItem value="none">Nenhum</SelectItem>
                   {EXAMPLE_SUBTYPES.map((t) => (
                     <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Pilar editorial</Label>
+              <Select
+                value={editCategoryMode === "auto" ? "auto" : editCategoryId || "auto"}
+                onValueChange={(v) => {
+                  if (v === "auto") {
+                    setEditCategoryMode("auto");
+                    setEditCategoryId("");
+                  } else {
+                    setEditCategoryMode("manual");
+                    setEditCategoryId(v);
+                  }
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (recomendado)</SelectItem>
+                  {categories?.map((cat: any) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

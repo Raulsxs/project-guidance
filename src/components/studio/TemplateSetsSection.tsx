@@ -6,14 +6,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Star, StarOff, Edit, Trash2, Square, Smartphone, Layers } from "lucide-react";
+import { Sparkles, Loader2, Star, Edit, Trash2, Square, Smartphone, Layers, AlertTriangle, RefreshCw } from "lucide-react";
 
 interface TemplateSetsProps {
   brandId: string;
   brandName: string;
   defaultTemplateSetId: string | null;
+  templateSetsDirty?: boolean;
+  templateSetsDirtyCount?: number;
+  templateSetsStatus?: string;
 }
 
 interface TemplateSet {
@@ -49,7 +52,7 @@ function useTemplateSets(brandId: string) {
   });
 }
 
-export default function TemplateSetsSection({ brandId, brandName, defaultTemplateSetId }: TemplateSetsProps) {
+export default function TemplateSetsSection({ brandId, brandName, defaultTemplateSetId, templateSetsDirty, templateSetsDirtyCount, templateSetsStatus }: TemplateSetsProps) {
   const queryClient = useQueryClient();
   const { data: templateSets, isLoading } = useTemplateSets(brandId);
   const [generating, setGenerating] = useState(false);
@@ -57,15 +60,23 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
 
-  const handleGenerate = async () => {
+  const hasActiveSets = templateSets && templateSets.length > 0;
+
+  const handleGenerate = async (force = false) => {
     setGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-template-sets", {
-        body: { brandId },
-      });
+      const fnName = force ? "update-template-sets-if-needed" : "generate-template-sets";
+      const body = force ? { brandId, force: true } : { brandId };
+
+      const { data, error } = await supabase.functions.invoke(fnName, { body });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success(`${data.count} Template Set(s) criado(s)!`);
+
+      if (data?.skipped) {
+        toast.info("Estilos de Conteúdo estão atualizados.");
+      } else {
+        toast.success(`${data.count || 0} Estilo(s) de Conteúdo criado(s)!`);
+      }
       queryClient.invalidateQueries({ queryKey: ["template-sets", brandId] });
       queryClient.invalidateQueries({ queryKey: ["brands"] });
     } catch (err: any) {
@@ -83,13 +94,13 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
     if (error) {
       toast.error("Erro ao definir padrão");
     } else {
-      toast.success("Template padrão atualizado!");
+      toast.success("Estilo padrão atualizado!");
       queryClient.invalidateQueries({ queryKey: ["brands"] });
     }
   };
 
   const handleDelete = async (setId: string) => {
-    if (!confirm("Excluir este Template Set?")) return;
+    if (!confirm("Excluir este Estilo de Conteúdo?")) return;
     const { error } = await supabase
       .from("brand_template_sets")
       .delete()
@@ -97,7 +108,7 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
     if (error) {
       toast.error("Erro ao excluir");
     } else {
-      toast.success("Template Set excluído");
+      toast.success("Estilo de Conteúdo excluído");
       queryClient.invalidateQueries({ queryKey: ["template-sets", brandId] });
     }
   };
@@ -136,20 +147,41 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium">Template Sets</h3>
+          <h3 className="text-sm font-medium">Estilos de Conteúdo</h3>
           <p className="text-xs text-muted-foreground">
-            Templates gerados automaticamente a partir dos exemplos
+            Estilos gerados automaticamente a partir dos exemplos
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating}>
+        <Button variant="outline" size="sm" onClick={() => handleGenerate(false)} disabled={generating}>
           {generating ? (
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
           ) : (
             <Sparkles className="w-4 h-4 mr-2" />
           )}
-          Gerar Template Sets
+          {hasActiveSets ? "Atualizar Estilos" : "Gerar Estilos"}
         </Button>
       </div>
+
+      {/* Dirty banner */}
+      {templateSetsDirty && (
+        <div className="flex items-center gap-3 p-3 bg-accent/50 border border-accent rounded-lg">
+          <AlertTriangle className="w-4 h-4 text-primary flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-medium">
+              Estilos de Conteúdo desatualizados ({templateSetsDirtyCount || 0} mudança{(templateSetsDirtyCount || 0) !== 1 ? "s" : ""})
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Exemplos foram adicionados ou modificados desde a última geração.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="default" size="sm" onClick={() => handleGenerate(true)} disabled={generating}>
+              {generating ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+              Atualizar agora
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-2">
@@ -174,7 +206,6 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
                     {isDefault && (
                       <Badge variant="default" className="text-[10px]">Padrão</Badge>
                     )}
-                    <Badge variant="secondary" className="text-[10px]">{ts.status}</Badge>
                   </div>
                   <div className="flex items-center gap-1">
                     {!isDefault && (
@@ -215,8 +246,8 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
       ) : (
         <div className="text-center py-6 text-muted-foreground border-2 border-dashed border-border rounded-lg">
           <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p className="text-xs">Nenhum Template Set criado</p>
-          <p className="text-[10px] mt-1">Faça upload de exemplos e clique em "Gerar Template Sets"</p>
+          <p className="text-xs">Nenhum Estilo de Conteúdo criado</p>
+          <p className="text-[10px] mt-1">Faça upload de exemplos e clique em "Gerar Estilos"</p>
         </div>
       )}
 
@@ -224,7 +255,7 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
       <Dialog open={!!editingSet} onOpenChange={(open) => { if (!open) setEditingSet(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Editar Template Set</DialogTitle>
+            <DialogTitle>Editar Estilo de Conteúdo</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1">

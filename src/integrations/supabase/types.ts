@@ -14,39 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      brand_example_categories: {
+        Row: {
+          brand_id: string
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          brand_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          brand_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_example_categories_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       brand_examples: {
         Row: {
           brand_id: string
+          carousel_group_id: string | null
+          category_id: string | null
+          category_mode: string
           content_type: string | null
           created_at: string
           description: string | null
           id: string
           image_url: string
+          slide_index: number | null
           subtype: string | null
           thumb_url: string | null
           type: string
+          updated_at: string
         }
         Insert: {
           brand_id: string
+          carousel_group_id?: string | null
+          category_id?: string | null
+          category_mode?: string
           content_type?: string | null
           created_at?: string
           description?: string | null
           id?: string
           image_url: string
+          slide_index?: number | null
           subtype?: string | null
           thumb_url?: string | null
           type?: string
+          updated_at?: string
         }
         Update: {
           brand_id?: string
+          carousel_group_id?: string | null
+          category_id?: string | null
+          category_mode?: string
           content_type?: string | null
           created_at?: string
           description?: string | null
           id?: string
           image_url?: string
+          slide_index?: number | null
           subtype?: string | null
           thumb_url?: string | null
           type?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -54,6 +104,13 @@ export type Database = {
             columns: ["brand_id"]
             isOneToOne: false
             referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_examples_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "brand_example_categories"
             referencedColumns: ["id"]
           },
         ]
@@ -117,6 +174,11 @@ export type Database = {
           style_guide: Json | null
           style_guide_updated_at: string | null
           style_guide_version: number
+          template_sets_dirty: boolean
+          template_sets_dirty_count: number
+          template_sets_last_error: string | null
+          template_sets_status: string
+          template_sets_updated_at: string | null
           updated_at: string
           visual_tone: string | null
         }
@@ -134,6 +196,11 @@ export type Database = {
           style_guide?: Json | null
           style_guide_updated_at?: string | null
           style_guide_version?: number
+          template_sets_dirty?: boolean
+          template_sets_dirty_count?: number
+          template_sets_last_error?: string | null
+          template_sets_status?: string
+          template_sets_updated_at?: string | null
           updated_at?: string
           visual_tone?: string | null
         }
@@ -151,6 +218,11 @@ export type Database = {
           style_guide?: Json | null
           style_guide_updated_at?: string | null
           style_guide_version?: number
+          template_sets_dirty?: boolean
+          template_sets_dirty_count?: number
+          template_sets_last_error?: string | null
+          template_sets_status?: string
+          template_sets_updated_at?: string | null
           updated_at?: string
           visual_tone?: string | null
         }

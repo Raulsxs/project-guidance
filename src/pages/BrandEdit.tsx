@@ -117,7 +117,7 @@ export default function BrandEdit() {
           <TabsList>
             <TabsTrigger value="info">Informações</TabsTrigger>
             <TabsTrigger value="examples">Exemplos Visuais</TabsTrigger>
-            <TabsTrigger value="templates">Template Sets</TabsTrigger>
+            <TabsTrigger value="templates">Estilos de Conteúdo</TabsTrigger>
           </TabsList>
 
           <TabsContent value="info">
@@ -244,6 +244,9 @@ export default function BrandEdit() {
                   brandId={brand.id}
                   brandName={brand.name}
                   defaultTemplateSetId={(brand as any).default_template_set_id || null}
+                  templateSetsDirty={(brand as any).template_sets_dirty || false}
+                  templateSetsDirtyCount={(brand as any).template_sets_dirty_count || 0}
+                  templateSetsStatus={(brand as any).template_sets_status || "idle"}
                 />
               </CardContent>
             </Card>

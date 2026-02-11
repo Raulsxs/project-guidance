@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.generate-template-sets]
 verify_jwt = false
+
+[functions.update-template-sets-if-needed]
+verify_jwt = false
