@@ -412,16 +412,170 @@ const GenericFreeTemplate = ({ slide, dimensions, slideIndex, totalSlides }: Sli
   );
 };
 
+// ══════ EDITORIAL DARK TEMPLATES ══════
+// These match "Artigos editoriais": dark navy bg, no waves, bold uppercase, accent highlight blocks
+
+const EditorialDarkCoverTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
+  const w = dimensions?.width || 1080;
+  const h = dimensions?.height || 1350;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const c1 = getHex(brand.palette, 1, "#0a2f5c");
+  const c2 = getHex(brand.palette, 2, "#c52244");
+  const c0 = getHex(brand.palette, 0, "#a4d3eb");
+
+  return (
+    <div style={{ width: w, height: h, background: c1, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+      {slide.previewImage && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 0, opacity: 0.12 }}>
+          <img src={slide.previewImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </div>
+      )}
+      {/* Decorative corner accents */}
+      <div style={{ position: "absolute", top: 0, left: 0, width: 120, height: 120, background: `linear-gradient(135deg, ${c0}33 0%, transparent 70%)`, zIndex: 1 }} />
+      <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 200, background: `linear-gradient(315deg, ${c2}22 0%, transparent 70%)`, zIndex: 1 }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "80px 70px", zIndex: 2 }}>
+        <h1 style={{ color: "#ffffff", fontSize: 62, fontWeight: 900, lineHeight: 1.12, letterSpacing: "0.02em", textTransform: "uppercase", marginBottom: 32 }}>
+          {slide.headline}
+        </h1>
+        {slide.body && (
+          <p style={{ color: "#ffffffcc", fontSize: 30, fontWeight: 400, lineHeight: 1.6, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`, fontStyle: "italic" }}>
+            {slide.body}
+          </p>
+        )}
+      </div>
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={c2} textColor="#ffffff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={1} />
+    </div>
+  );
+};
+
+const EditorialDarkTextTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
+  const w = dimensions?.width || 1080;
+  const h = dimensions?.height || 1350;
+  const typo = getTypo(brand);
+  const logoConf = getLogoConfig(brand);
+  const c1 = getHex(brand.palette, 1, "#0a2f5c");
+  const c2 = getHex(brand.palette, 2, "#c52244");
+  const c0 = getHex(brand.palette, 0, "#a4d3eb");
+  // Accent block color (salmon/pink from references)
+  const accentBlock = getHex(brand.palette, 3, "#e8a8a0");
+
+  return (
+    <div style={{ width: w, height: h, background: c1, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+      <div style={{ position: "absolute", top: 0, left: 0, width: 80, height: 80, background: `linear-gradient(135deg, ${c0}33 0%, transparent 70%)`, zIndex: 1 }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", padding: "80px 60px", zIndex: 2, gap: 32 }}>
+        <h2 style={{ color: "#ffffff", fontSize: 48, fontWeight: 900, lineHeight: 1.15, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+          {slide.headline}
+        </h2>
+        <p style={{ color: "#ffffffcc", fontSize: 26, fontWeight: 400, lineHeight: 1.65, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`, maxWidth: "92%" }}>
+          {slide.body}
+        </p>
+      </div>
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={c2} textColor="#ffffff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={1} />
+    </div>
+  );
+};
+
+const EditorialDarkBulletsTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
+  const w = dimensions?.width || 1080;
+  const h = dimensions?.height || 1350;
+  const logoConf = getLogoConfig(brand);
+  const c1 = getHex(brand.palette, 1, "#0a2f5c");
+  const c2 = getHex(brand.palette, 2, "#c52244");
+  const c0 = getHex(brand.palette, 0, "#a4d3eb");
+  const accentBlock = getHex(brand.palette, 3, "#e8a8a0");
+  const bullets = slide.bullets || [];
+
+  return (
+    <div style={{ width: w, height: h, background: c1, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+      <div style={{ position: "absolute", top: 0, left: 0, width: 80, height: 80, background: `linear-gradient(135deg, ${c0}33 0%, transparent 70%)`, zIndex: 1 }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 60px", zIndex: 2 }}>
+        <h2 style={{ color: "#ffffff", fontSize: 46, fontWeight: 900, lineHeight: 1.15, textTransform: "uppercase", letterSpacing: "0.02em", textAlign: "center", marginBottom: 40 }}>
+          {slide.headline}
+        </h2>
+        {bullets.length > 0 ? (
+          <div style={{ backgroundColor: `${accentBlock}dd`, borderRadius: 16, padding: "36px 40px", display: "flex", flexDirection: "column", gap: 16 }}>
+            {bullets.map((bullet, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                <span style={{ fontSize: 22, lineHeight: 1, marginTop: 4 }}>✓</span>
+                <p style={{ color: "#1a1a2e", fontSize: 24, lineHeight: 1.5, fontWeight: 500, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{bullet}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ backgroundColor: `${accentBlock}dd`, borderRadius: 16, padding: "36px 40px" }}>
+            <p style={{ color: "#1a1a2e", fontSize: 24, lineHeight: 1.6, fontWeight: 500, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`, textAlign: "center" }}>{slide.body}</p>
+          </div>
+        )}
+      </div>
+      <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={c2} textColor="#ffffff" />
+      <LogoMark brand={brand} position={logoConf.position} opacity={1} />
+    </div>
+  );
+};
+
+const EditorialDarkCtaTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
+  const w = dimensions?.width || 1080;
+  const h = dimensions?.height || 1350;
+  const logoConf = getLogoConfig(brand);
+  const c1 = getHex(brand.palette, 1, "#0a2f5c");
+  const c2 = getHex(brand.palette, 2, "#c52244");
+  const c0 = getHex(brand.palette, 0, "#a4d3eb");
+
+  const ctaItems = [
+    { icon: "♥", label: "deixe\nseu like" },
+    { icon: "✈", label: "envie aos\namigos" },
+    { icon: "⊞", label: "salve para\ndepois" },
+    { icon: "💬", label: "comente" },
+  ];
+
+  return (
+    <div style={{ width: w, height: h, background: c1, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+      <div style={{ position: "absolute", bottom: 0, left: 0, width: 300, height: 300, background: `linear-gradient(45deg, ${c2}33 0%, transparent 70%)`, zIndex: 1 }} />
+      <div style={{ zIndex: 2, padding: "60px", maxWidth: "90%" }}>
+        <h2 style={{ color: "#ffffff", fontSize: 56, fontWeight: 900, lineHeight: 1.15, textTransform: "uppercase", marginBottom: 12 }}>
+          {slide.headline || "Gostou do"}
+        </h2>
+        {/* Highlight block for "conteúdo?" */}
+        <div style={{ display: "inline-block", backgroundColor: `${c0}66`, padding: "8px 24px", borderRadius: 8, marginBottom: 48 }}>
+          <span style={{ color: "#ffffff", fontSize: 56, fontWeight: 900, textTransform: "uppercase" }}>
+            {slide.body || "conteúdo?"}
+          </span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 40, marginTop: 24 }}>
+          {ctaItems.map((item, i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+              <div style={{ fontSize: 48, lineHeight: 1 }}>{item.icon}</div>
+              <span style={{ color: "#ffffffcc", fontSize: 18, fontWeight: 500, whiteSpace: "pre-line", fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <LogoMark brand={brand} position={logoConf.position} opacity={1} />
+    </div>
+  );
+};
+
 // ══════ TEMPLATE MAP ══════
 
 const TemplateMap: Record<string, React.FC<SlideTemplateRendererProps>> = {
+  // Wave-based (clinical/light)
   wave_cover: WaveCoverTemplate,
   wave_text_card: WaveTextCardTemplate,
   wave_bullets: WaveBulletsTemplate,
   wave_closing: WaveClosingTemplate,
   wave_closing_cta: WaveClosingTemplate,
+  // Editorial dark
+  dark_cover_bold_text: EditorialDarkCoverTemplate,
+  dark_full_text_slide: EditorialDarkTextTemplate,
+  dark_bullet_points: EditorialDarkBulletsTemplate,
+  dark_cta_slide: EditorialDarkCtaTemplate,
+  // Story
   story_cover: StoryCoverTemplate,
   story_tip: StoryTipTemplate,
+  // Generic
   generic_free: GenericFreeTemplate,
   solid_cover: WaveCoverTemplate,
 };
