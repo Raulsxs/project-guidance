@@ -221,9 +221,22 @@ const WaveTextCardTemplate = ({ slide, brand, dimensions, slideIndex, totalSlide
   const layout = getLayoutRules(brand, ct);
   const showWave = hasWavePattern(brand);
 
-  // Check if style notes mention "card" — if notes say "sem card" or don't mention card, render flat
+  // Determine card vs flat from style guide notes or layout_rules
   const notes = (brand.style_guide as any)?.notes as string[] | undefined;
-  const useCard = notes ? notes.some(n => n.toLowerCase().includes("card")) : true;
+  const layoutRules = (brand.style_guide as any)?.formats?.[ct]?.layout_rules;
+  
+  // Explicit layout_rules.content_card takes priority
+  let useCard = true;
+  if (layoutRules?.content_card !== undefined) {
+    useCard = !!layoutRules.content_card;
+  } else if (notes && notes.length > 0) {
+    // Smart heuristic: "sem card" or "sem um card" = no card; "card branco" / "utilizam.*card" = yes card
+    const hasCardNegative = notes.some(n => /sem\s+(um\s+)?card/i.test(n) || /sem\s+o\s+card/i.test(n) || /diretamente sobre o fundo/i.test(n));
+    const hasCardPositive = notes.some(n => /card\s+branc/i.test(n) || /utilizam\s+(um\s+)?card/i.test(n));
+    if (hasCardNegative) useCard = false;
+    else if (hasCardPositive) useCard = true;
+    // else default true
+  }
 
   if (!useCard) {
     // Flat layout: text directly on background (e.g., "Artigos editoriais")
