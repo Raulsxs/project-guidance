@@ -104,7 +104,15 @@ serve(async (req) => {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const responseText = await response.text();
+        let data: any;
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          console.warn(`[generate-slide-images] Empty/invalid JSON response on attempt ${attempt + 1}, retrying...`);
+          lastError = new Error("Empty response from AI");
+          continue;
+        }
         const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
 
         if (!base64Image) {
