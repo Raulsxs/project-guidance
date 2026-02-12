@@ -144,6 +144,10 @@ const ContentPreview = () => {
           },
           contentType: content.content_type,
           customPrompt: customPrompt || undefined,
+          templateSetId: (content as any).template_set_id || undefined,
+          brandId: (content as any).brand_snapshot ? (content.brand_snapshot as any)?.brandId || undefined : undefined,
+          visualMode: (content as any).visual_mode || "free",
+          includeCta: (content as any).include_cta ?? true,
         },
       });
 
