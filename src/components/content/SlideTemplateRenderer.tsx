@@ -5,27 +5,80 @@ import type { StyleGuide } from "@/types/studio";
 // ══════ TYPES ══════
 
 interface LayoutParams {
-  bg: { type: string; palette_index: number; gradient_angle?: number; overlay_opacity?: number };
-  wave: { enabled: boolean; height_pct: number; palette_index: number };
-  card?: { enabled: boolean; border_radius: number; palette_index: number; shadow: boolean; position: string };
+  bg: {
+    type: string;
+    colors?: string[];
+    palette_index?: number;
+    gradient_angle?: number;
+    overlay_opacity?: number;
+  };
+  shape: {
+    type: string;
+    position?: string;
+    height_pct?: number;
+    color?: string;
+    flip?: boolean;
+  };
+  // Legacy wave support
+  wave?: { enabled: boolean; height_pct: number; palette_index: number };
+  card: {
+    enabled: boolean;
+    style?: string;
+    position?: string;
+    bg_color?: string;
+    border_radius?: number;
+    shadow?: string;
+    padding?: number;
+    width_pct?: number;
+    border?: string;
+    // Legacy fields
+    palette_index?: number;
+  };
   text: {
-    alignment: string; vertical_position: string;
-    headline_size: number; headline_weight: number; headline_uppercase: boolean; headline_letter_spacing?: number;
-    body_size: number; body_weight: number; body_italic?: boolean;
-    text_color: string; body_color: string;
+    alignment: string;
+    vertical_position: string;
+    headline_size: number;
+    headline_weight: number;
+    headline_uppercase: boolean;
+    headline_letter_spacing?: number;
+    headline_color?: string;
+    body_size: number;
+    body_weight: number;
+    body_italic?: boolean;
+    body_color?: string;
+    text_shadow?: string;
+    max_width_pct?: number;
+    // Legacy fields
+    text_color?: string;
   };
   decorations?: {
-    accent_bar?: { enabled: boolean; position?: string; width?: number; height?: number };
-    corner_accents?: { enabled: boolean };
-    border?: { enabled: boolean };
+    accent_bar?: { enabled: boolean; position?: string; width?: number; height?: number; color?: string };
+    corner_accents?: { enabled: boolean; color?: string; size?: number };
+    border?: { enabled: boolean; color?: string; width?: number; radius?: number; inset?: number };
+    divider_line?: { enabled: boolean; color?: string; width?: string; position?: string };
   };
-  logo?: { position: string; opacity: number; size?: number };
+  logo?: { position: string; opacity: number; size?: number; bg_circle?: boolean };
   padding?: { x: number; y: number };
   bullet_style?: {
-    type: string; accent_palette_index?: number;
-    container_enabled?: boolean; container_palette_index?: number; container_border_radius?: number;
+    type: string;
+    accent_color?: string;
+    number_bg_color?: string;
+    number_text_color?: string;
+    size?: number;
+    accent_palette_index?: number;
+    container?: { enabled: boolean; bg_color?: string; border_radius?: number; padding?: number };
+    // Legacy
+    container_enabled?: boolean;
+    container_palette_index?: number;
+    container_border_radius?: number;
   };
-  cta_icons?: { enabled: boolean; style?: string; items?: string[] };
+  cta_icons?: {
+    enabled: boolean;
+    style?: string;
+    items?: { icon: string; label: string }[] | string[];
+    icon_size?: number;
+    label_color?: string;
+  };
 }
 
 interface SlideData {
@@ -78,37 +131,78 @@ function getLayoutParams(brand: BrandSnapshot): Record<string, LayoutParams> | n
 function getParamsForRole(brand: BrandSnapshot, role: string): LayoutParams | null {
   const lp = getLayoutParams(brand);
   if (!lp) return null;
-  // Try exact role, then fallbacks
   return lp[role] || lp["content"] || null;
 }
 
+// Resolve colors from new format (bg.colors) or legacy format (bg.palette_index)
+function resolveBgColors(params: LayoutParams, palette: BrandSnapshot["palette"]): { primary: string; secondary: string } {
+  if (params.bg.colors && params.bg.colors.length > 0) {
+    return {
+      primary: params.bg.colors[0],
+      secondary: params.bg.colors[1] || params.bg.colors[0],
+    };
+  }
+  // Legacy: palette_index
+  const idx = params.bg.palette_index ?? 1;
+  return {
+    primary: getHex(palette, idx, "#1a1a2e"),
+    secondary: getHex(palette, (idx + 1) % (palette?.length || 3), "#a4d3eb"),
+  };
+}
+
+function resolveTextColors(params: LayoutParams, palette: BrandSnapshot["palette"]): { headline: string; body: string } {
+  return {
+    headline: params.text.headline_color || params.text.text_color || "#ffffff",
+    body: params.text.body_color || "#ffffffcc",
+  };
+}
+
+function resolveAccentColor(params: LayoutParams, palette: BrandSnapshot["palette"]): string {
+  return params.decorations?.accent_bar?.color || getHex(palette, 2, "#c52244");
+}
+
+function resolveShapeColor(params: LayoutParams, palette: BrandSnapshot["palette"]): string {
+  if (params.shape?.color) return params.shape.color;
+  // Legacy wave support
+  if (params.wave?.enabled) return getHex(palette, params.wave.palette_index, "#a4d3eb");
+  return "#ffffff";
+}
+
+function getTextShadow(level?: string): string {
+  if (level === "strong") return "0 2px 12px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)";
+  if (level === "subtle") return "0 1px 6px rgba(0,0,0,0.3)";
+  return "none";
+}
+
+function getCardShadow(level?: string): string {
+  if (level === "strong") return "0 12px 48px rgba(0,0,0,0.15)";
+  if (level === "soft") return "0 8px 32px rgba(0,0,0,0.08)";
+  return "none";
+}
+
 // ══════ PARAMETERIZED TEMPLATE ══════
-// This single component renders ANY visual structure based on layout_params from AI analysis
 
 const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlides }: SlideTemplateRendererProps) => {
-  const role = slide.role || (slideIndex === 0 ? "cover" : "content");
+  const role = slide.role || (slideIndex === 0 ? "cover" : slideIndex === totalSlides - 1 ? "cta" : "content");
   const params = getParamsForRole(brand, role);
-  if (!params) return null; // Signal to fallback to legacy
+  if (!params) return null;
 
   const w = dimensions?.width || 1080;
   const h = dimensions?.height || 1350;
   const px = params.padding?.x || 60;
   const py = params.padding?.y || 80;
 
-  // Resolve colors from palette
-  const bgPaletteColor = getHex(brand.palette, params.bg.palette_index, "#1a1a2e");
-  const wavePaletteColor = getHex(brand.palette, params.wave.palette_index, "#a4d3eb");
-  const accentColor = getHex(brand.palette, 2, "#c52244");
-  const cardBgColor = params.card?.enabled ? getHex(brand.palette, params.card.palette_index, "#ffffff") : "transparent";
+  const bgColors = resolveBgColors(params, brand.palette);
+  const textColors = resolveTextColors(params, brand.palette);
+  const accentColor = resolveAccentColor(params, brand.palette);
+  const shapeColor = resolveShapeColor(params, brand.palette);
 
-  // Build background
+  // Build background style
   let bgStyle: string;
   if (params.bg.type === "gradient") {
-    const c0 = getHex(brand.palette, params.bg.palette_index, "#1a1a2e");
-    const c1 = getHex(brand.palette, (params.bg.palette_index + 1) % (brand.palette?.length || 3), "#a4d3eb");
-    bgStyle = `linear-gradient(${params.bg.gradient_angle || 135}deg, ${c0}, ${c1})`;
+    bgStyle = `linear-gradient(${params.bg.gradient_angle || 180}deg, ${bgColors.primary}, ${bgColors.secondary})`;
   } else {
-    bgStyle = bgPaletteColor;
+    bgStyle = bgColors.primary;
   }
 
   // Text alignment
@@ -119,14 +213,36 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
   const isBullets = role === "bullets" || role === "insight";
   const isCta = role === "cta" || role === "closing";
   const bullets = slide.bullets || [];
+  const textShadow = getTextShadow(params.text.text_shadow);
+
+  // Determine shape (new format or legacy wave)
+  const hasWave = params.shape?.type === "wave" || (params.wave?.enabled);
+  const hasDiagonal = params.shape?.type === "diagonal";
+  const shapePosition = params.shape?.position || "bottom";
+  const shapeHeight = params.shape?.height_pct || params.wave?.height_pct || 18;
+
+  // Card config
+  const cardEnabled = params.card?.enabled;
+  const cardBg = params.card?.bg_color || (params.card?.palette_index != null ? getHex(brand.palette, params.card.palette_index, "#ffffff") : "#ffffff");
+  const cardRadius = params.card?.border_radius ?? 24;
+  const cardShadow = getCardShadow(typeof params.card?.shadow === "string" ? params.card.shadow : (params.card?.shadow ? "soft" : "none"));
+  const cardPosition = params.card?.position || "center";
+  const cardWidthPct = params.card?.width_pct || 85;
+  const cardPadding = params.card?.padding ?? 48;
 
   // CTA items
-  const ctaItems = [
+  const defaultCtaItems = [
     { icon: "❤️", label: "Curta" },
     { icon: "💬", label: "Comente" },
     { icon: "🔄", label: "Compartilhe" },
     { icon: "📌", label: "Salve" },
   ];
+  const ctaItems = params.cta_icons?.items?.map((item: any) =>
+    typeof item === "string" ? { icon: item === "like" ? "❤️" : item === "send" ? "🔄" : item === "save" ? "📌" : "💬", label: item } : item
+  ) || defaultCtaItems;
+
+  // Max text width
+  const maxTextWidth = params.text.max_width_pct ? `${params.text.max_width_pct}%` : "100%";
 
   return (
     <div style={{
@@ -134,51 +250,110 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
       fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`,
       display: "flex", flexDirection: "column",
     }}>
-      {/* Preview image overlay */}
-      {slide.previewImage && params.bg.type === "image_overlay" && (
+      {/* Photo overlay background */}
+      {slide.previewImage && (params.bg.type === "photo_overlay" || params.bg.type === "image_overlay") && (
         <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
           <img src={slide.previewImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          <div style={{ position: "absolute", inset: 0, background: `${bgPaletteColor}${Math.round((params.bg.overlay_opacity || 0.5) * 255).toString(16).padStart(2, '0')}` }} />
+          <div style={{
+            position: "absolute", inset: 0,
+            background: params.bg.gradient_angle
+              ? `linear-gradient(${params.bg.gradient_angle}deg, ${bgColors.primary}${Math.round((params.bg.overlay_opacity || 0.6) * 255).toString(16).padStart(2, '0')}, ${bgColors.secondary}${Math.round((params.bg.overlay_opacity || 0.6) * 255).toString(16).padStart(2, '0')})`
+              : `${bgColors.primary}${Math.round((params.bg.overlay_opacity || 0.6) * 255).toString(16).padStart(2, '0')}`,
+          }} />
         </div>
       )}
 
-      {/* Wave */}
-      {params.wave.enabled && (
+      {/* Wave shape */}
+      {hasWave && (
         <svg
           viewBox="0 0 1080 200" preserveAspectRatio="none"
-          style={{ position: "absolute", bottom: 0, left: 0, width: "100%", height: `${params.wave.height_pct || 18}%`, zIndex: 1 }}
+          style={{
+            position: "absolute",
+            [shapePosition]: 0, left: 0,
+            width: "100%", height: `${shapeHeight}%`, zIndex: 1,
+            transform: shapePosition === "top" ? "rotate(180deg)" : undefined,
+          }}
         >
-          <path d="M0,80 C180,20 360,140 540,80 C720,20 900,140 1080,80 L1080,200 L0,200 Z" fill={wavePaletteColor} />
+          <path d="M0,80 C180,20 360,140 540,80 C720,20 900,140 1080,80 L1080,200 L0,200 Z" fill={shapeColor} />
+        </svg>
+      )}
+
+      {/* Diagonal cut shape */}
+      {hasDiagonal && (
+        <svg
+          viewBox="0 0 1080 200" preserveAspectRatio="none"
+          style={{
+            position: "absolute",
+            [shapePosition]: 0, left: 0,
+            width: "100%", height: `${shapeHeight}%`, zIndex: 1,
+          }}
+        >
+          <polygon points={shapePosition === "top" ? "0,0 1080,0 1080,200" : "0,200 1080,0 1080,200"} fill={shapeColor} />
         </svg>
       )}
 
       {/* Decorative corner accents */}
       {params.decorations?.corner_accents?.enabled && (
         <>
-          <div style={{ position: "absolute", top: 0, left: 0, width: 120, height: 120, background: `linear-gradient(135deg, ${wavePaletteColor}33 0%, transparent 70%)`, zIndex: 1 }} />
-          <div style={{ position: "absolute", bottom: 0, right: 0, width: 200, height: 200, background: `linear-gradient(315deg, ${accentColor}22 0%, transparent 70%)`, zIndex: 1 }} />
+          <div style={{
+            position: "absolute", top: 0, left: 0,
+            width: params.decorations.corner_accents.size || 120,
+            height: params.decorations.corner_accents.size || 120,
+            background: `linear-gradient(135deg, ${params.decorations.corner_accents.color || shapeColor}44 0%, transparent 70%)`,
+            zIndex: 1,
+          }} />
+          <div style={{
+            position: "absolute", bottom: 0, right: 0,
+            width: (params.decorations.corner_accents.size || 120) * 1.5,
+            height: (params.decorations.corner_accents.size || 120) * 1.5,
+            background: `linear-gradient(315deg, ${accentColor}22 0%, transparent 70%)`,
+            zIndex: 1,
+          }} />
         </>
+      )}
+
+      {/* Decorative border */}
+      {params.decorations?.border?.enabled && (
+        <div style={{
+          position: "absolute",
+          inset: params.decorations.border.inset || 20,
+          border: `${params.decorations.border.width || 2}px solid ${params.decorations.border.color || accentColor}`,
+          borderRadius: params.decorations.border.radius || 0,
+          zIndex: 1,
+          pointerEvents: "none",
+        }} />
       )}
 
       {/* Main content area */}
       <div style={{
-        flex: 1, display: "flex", flexDirection: "column", justifyContent,
+        flex: 1, display: "flex", flexDirection: "column",
+        justifyContent: cardPosition === "bottom" ? "flex-end" : justifyContent,
         alignItems: textAlign === "center" ? "center" : textAlign === "right" ? "flex-end" : "flex-start",
-        padding: `${py}px ${px}px`, zIndex: 2, textAlign,
+        padding: cardEnabled && cardPosition === "bottom" ? `${py}px ${px}px 0` : `${py}px ${px}px`,
+        zIndex: 2, textAlign,
       }}>
         {/* Card wrapper (optional) */}
-        {params.card?.enabled ? (
+        {cardEnabled ? (
           <div style={{
-            backgroundColor: cardBgColor,
-            borderRadius: params.card.border_radius || 24,
-            padding: `48px ${px - 12}px`,
-            maxWidth: "88%",
-            boxShadow: params.card.shadow ? "0 8px 32px rgba(0,0,0,0.08)" : "none",
+            backgroundColor: cardBg,
+            borderRadius: cardPosition === "bottom"
+              ? `${cardRadius}px ${cardRadius}px 0 0`
+              : cardRadius,
+            padding: `${cardPadding}px`,
+            width: `${cardWidthPct}%`,
+            maxWidth: `${cardWidthPct}%`,
+            boxShadow: cardShadow,
             textAlign,
+            ...(cardPosition === "bottom" ? { marginTop: "auto" } : {}),
+            ...(params.card?.border && params.card.border !== "none" ? { border: params.card.border } : {}),
           }}>
-            {renderContent()}
+            {renderContent(textColors, accentColor, true)}
           </div>
-        ) : renderContent()}
+        ) : (
+          <div style={{ maxWidth: maxTextWidth }}>
+            {renderContent(textColors, accentColor, false)}
+          </div>
+        )}
       </div>
 
       {/* Slide badge */}
@@ -198,20 +373,25 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
           position={params.logo.position}
           opacity={params.logo.opacity}
           size={params.logo.size || 48}
+          bgCircle={params.logo.bg_circle}
         />
       )}
     </div>
   );
 
-  function renderContent() {
+  function renderContent(colors: { headline: string; body: string }, accent: string, insideCard: boolean) {
+    // When inside a card, determine if text colors should be dark
+    const headlineColor = insideCard && isLightColor(cardBg) ? darkenForCard(colors.headline) : colors.headline;
+    const bodyColor = insideCard && isLightColor(cardBg) ? darkenForCard(colors.body) : colors.body;
+
     return (
       <>
-        {/* Accent bar */}
-        {params!.decorations?.accent_bar?.enabled && (
+        {/* Accent bar above headline */}
+        {params!.decorations?.accent_bar?.enabled && params!.decorations.accent_bar.position !== "below_headline" && (
           <div style={{
             width: params!.decorations.accent_bar.width || 60,
             height: params!.decorations.accent_bar.height || 6,
-            backgroundColor: accentColor,
+            backgroundColor: params!.decorations.accent_bar.color || accent,
             borderRadius: 3,
             marginBottom: 28,
             ...(textAlign === "center" ? { marginLeft: "auto", marginRight: "auto" } : {}),
@@ -220,72 +400,84 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
 
         {/* Headline */}
         <h1 style={{
-          color: params!.text.text_color,
+          color: headlineColor,
           fontSize: params!.text.headline_size,
           fontWeight: params!.text.headline_weight,
           lineHeight: 1.15,
           letterSpacing: params!.text.headline_letter_spacing ? `${params!.text.headline_letter_spacing}em` : undefined,
           textTransform: params!.text.headline_uppercase ? "uppercase" : undefined,
           marginBottom: 24,
+          textShadow: insideCard ? "none" : textShadow,
         }}>
           {slide.headline}
         </h1>
+
+        {/* Accent bar below headline */}
+        {params!.decorations?.accent_bar?.enabled && params!.decorations.accent_bar.position === "below_headline" && (
+          <div style={{
+            width: params!.decorations.accent_bar.width || 60,
+            height: params!.decorations.accent_bar.height || 6,
+            backgroundColor: params!.decorations.accent_bar.color || accent,
+            borderRadius: 3,
+            marginBottom: 24,
+            ...(textAlign === "center" ? { marginLeft: "auto", marginRight: "auto" } : {}),
+          }} />
+        )}
+
+        {/* Divider line */}
+        {params!.decorations?.divider_line?.enabled && (
+          <div style={{
+            width: params!.decorations.divider_line.width || "60%",
+            height: 1,
+            backgroundColor: params!.decorations.divider_line.color || accent,
+            marginBottom: 24,
+            ...(textAlign === "center" ? { marginLeft: "auto", marginRight: "auto" } : {}),
+          }} />
+        )}
 
         {/* Bullets */}
         {isBullets && bullets.length > 0 ? (
           <div style={{
             display: "flex", flexDirection: "column", gap: 16,
-            ...(params!.bullet_style?.container_enabled ? {
-              backgroundColor: getHex(brand.palette, params!.bullet_style.container_palette_index || 3, "#e8a8a0") + "dd",
-              borderRadius: params!.bullet_style.container_border_radius || 16,
-              padding: "36px 40px",
+            ...(getBulletContainerEnabled() ? {
+              backgroundColor: getBulletContainerBg(),
+              borderRadius: getBulletContainerRadius(),
+              padding: `${getBulletContainerPadding()}px`,
             } : {}),
           }}>
             {bullets.map((bullet, i) => (
               <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-                {params!.bullet_style?.type === "checkmark" ? (
-                  <span style={{ fontSize: 22, lineHeight: 1, marginTop: 4, color: params!.text.text_color }}>✓</span>
-                ) : params!.bullet_style?.type === "dash" ? (
-                  <span style={{ fontSize: 22, lineHeight: 1, marginTop: 4, color: params!.text.text_color }}>—</span>
-                ) : (
-                  <div style={{
-                    width: 36, height: 36, borderRadius: "50%",
-                    backgroundColor: getHex(brand.palette, params!.bullet_style?.accent_palette_index || 2, accentColor),
-                    color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 18, fontWeight: 700, flexShrink: 0, marginTop: 2,
-                  }}>
-                    {i + 1}
-                  </div>
-                )}
+                {renderBulletMarker(i, accent)}
                 <p style={{
-                  color: params!.bullet_style?.container_enabled ? "#1a1a2e" : params!.text.body_color,
+                  color: getBulletContainerEnabled() ? "#1a1a2e" : bodyColor,
                   fontSize: params!.text.body_size,
                   lineHeight: 1.5,
                   fontWeight: params!.text.body_weight,
                   fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`,
+                  textShadow: insideCard ? "none" : textShadow,
                 }}>{bullet}</p>
               </div>
             ))}
           </div>
         ) : isCta && params!.cta_icons?.enabled ? (
-          /* CTA Layout */
           <>
             <p style={{
-              color: params!.text.body_color,
+              color: bodyColor,
               fontSize: params!.text.body_size,
               fontWeight: params!.text.body_weight,
               lineHeight: 1.5,
               marginBottom: 40,
               fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`,
+              textShadow: insideCard ? "none" : textShadow,
             }}>
               {slide.body}
             </p>
             <div style={{ display: "flex", justifyContent: "center", gap: 40, marginTop: 24 }}>
-              {ctaItems.map((item, i) => (
+              {ctaItems.map((item: any, i: number) => (
                 <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                  <div style={{ fontSize: 48, lineHeight: 1 }}>{item.icon}</div>
+                  <div style={{ fontSize: params!.cta_icons?.icon_size || 48, lineHeight: 1 }}>{item.icon}</div>
                   <span style={{
-                    color: params!.text.body_color, fontSize: 18, fontWeight: 500,
+                    color: params!.cta_icons?.label_color || bodyColor, fontSize: 18, fontWeight: 500,
                     fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`,
                   }}>{item.label}</span>
                 </div>
@@ -293,14 +485,14 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
             </div>
           </>
         ) : (
-          /* Regular body text */
           <p style={{
-            color: params!.text.body_color,
+            color: bodyColor,
             fontSize: params!.text.body_size,
             fontWeight: params!.text.body_weight,
             lineHeight: 1.6,
             fontStyle: params!.text.body_italic ? "italic" : undefined,
             fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif`,
+            textShadow: insideCard ? "none" : textShadow,
           }}>
             {slide.body}
           </p>
@@ -308,16 +500,85 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
       </>
     );
   }
+
+  function renderBulletMarker(index: number, accent: string) {
+    const bs = params!.bullet_style;
+    const bulletType = bs?.type || "numbered_circle";
+    const markerSize = bs?.size || 36;
+    const bgColor = bs?.number_bg_color || bs?.accent_color || accent;
+    const textColor = bs?.number_text_color || "#ffffff";
+
+    if (bulletType === "checkmark") {
+      return <span style={{ fontSize: markerSize * 0.6, lineHeight: 1, marginTop: 4, color: bgColor }}>✓</span>;
+    }
+    if (bulletType === "dash") {
+      return <span style={{ fontSize: markerSize * 0.6, lineHeight: 1, marginTop: 4, color: bgColor }}>—</span>;
+    }
+    if (bulletType === "arrow") {
+      return <span style={{ fontSize: markerSize * 0.6, lineHeight: 1, marginTop: 4, color: bgColor }}>→</span>;
+    }
+    // numbered_circle default
+    return (
+      <div style={{
+        width: markerSize, height: markerSize, borderRadius: "50%",
+        backgroundColor: bgColor, color: textColor,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: markerSize * 0.5, fontWeight: 700, flexShrink: 0, marginTop: 2,
+      }}>
+        {index + 1}
+      </div>
+    );
+  }
+
+  function getBulletContainerEnabled(): boolean {
+    return params!.bullet_style?.container?.enabled || params!.bullet_style?.container_enabled || false;
+  }
+  function getBulletContainerBg(): string {
+    return params!.bullet_style?.container?.bg_color
+      || (params!.bullet_style?.container_palette_index != null ? getHex(brand.palette, params!.bullet_style.container_palette_index, "#e8a8a0") + "dd" : "#e8a8a0dd");
+  }
+  function getBulletContainerRadius(): number {
+    return params!.bullet_style?.container?.border_radius || params!.bullet_style?.container_border_radius || 16;
+  }
+  function getBulletContainerPadding(): number {
+    return params!.bullet_style?.container?.padding || 36;
+  }
 };
 
-function LogoMarkParameterized({ logoUrl, position, opacity, size }: { logoUrl: string; position: string; opacity: number; size: number }) {
-  const posStyle: React.CSSProperties = { position: "absolute", zIndex: 3, objectFit: "contain" };
+function isLightColor(hex: string): boolean {
+  const c = hex.replace("#", "");
+  if (c.length < 6) return true;
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 140;
+}
+
+function darkenForCard(color: string): string {
+  // If color is light/white, return dark text
+  if (isLightColor(color)) return "#1a1a2e";
+  return color;
+}
+
+function LogoMarkParameterized({ logoUrl, position, opacity, size, bgCircle }: { logoUrl: string; position: string; opacity: number; size: number; bgCircle?: boolean }) {
+  const posStyle: React.CSSProperties = { position: "absolute", zIndex: 3 };
   if (position.includes("top")) posStyle.top = 40;
   else posStyle.bottom = 40;
   if (position.includes("right")) posStyle.right = 40;
   else if (position.includes("left")) posStyle.left = 40;
   else { posStyle.left = "50%"; posStyle.transform = "translateX(-50%)"; }
-  return <img src={logoUrl} alt="Logo" style={{ ...posStyle, height: size, opacity }} />;
+
+  if (bgCircle) {
+    return (
+      <div style={{
+        ...posStyle, width: size + 24, height: size + 24, borderRadius: "50%",
+        backgroundColor: "rgba(255,255,255,0.9)", display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <img src={logoUrl} alt="Logo" style={{ height: size, objectFit: "contain", opacity }} />
+      </div>
+    );
+  }
+  return <img src={logoUrl} alt="Logo" style={{ ...posStyle, height: size, objectFit: "contain", opacity }} />;
 }
 
 // ══════ LEGACY TEMPLATES (fallback when no layout_params) ══════
@@ -407,7 +668,6 @@ const WaveTextCardTemplate = ({ slide, brand, dimensions, slideIndex, totalSlide
   const c0 = getHex(brand.palette, 0, "#a4d3eb");
   const c1 = getHex(brand.palette, 1, "#10559a");
   const c2 = getHex(brand.palette, 2, "#c52244");
-  const c3 = getHex(brand.palette, 3, "#f5eaee");
   const typo = getTypo(brand);
   const logoConf = getLogoConfig(brand);
   const w = dimensions?.width || 1080;
@@ -547,11 +807,9 @@ export function resolveTemplateForSlide(
   templateSet: any | null,
   role: string,
 ): string {
-  // With layout_params, template name is just "parameterized"
   if (templateSet?.layout_params?.[role] || templateSet?.layout_params?.["content"]) {
     return "parameterized";
   }
-  // Legacy: return role name for generic mapping
   const roleMap: Record<string, string> = {
     cover: "wave_cover", context: "wave_text_card", content: "wave_text_card",
     insight: "wave_bullets", bullets: "wave_bullets", quote: "wave_text_card",
