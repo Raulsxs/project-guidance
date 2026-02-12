@@ -221,6 +221,26 @@ const WaveTextCardTemplate = ({ slide, brand, dimensions, slideIndex, totalSlide
   const layout = getLayoutRules(brand, ct);
   const showWave = hasWavePattern(brand);
 
+  // Check if style notes mention "card" — if notes say "sem card" or don't mention card, render flat
+  const notes = (brand.style_guide as any)?.notes as string[] | undefined;
+  const useCard = notes ? notes.some(n => n.toLowerCase().includes("card")) : true;
+
+  if (!useCard) {
+    // Flat layout: text directly on background (e.g., "Artigos editoriais")
+    return (
+      <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={layout.waveHeightPct} />}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: `80px ${layout.safeMargin}px`, zIndex: 2 }}>
+          <AccentBar color={accent} style={{ marginBottom: 28 }} />
+          <h2 style={{ color: dark, fontSize: 52, fontWeight: typo.headlineWeight, lineHeight: 1.2, marginBottom: 24, textTransform: typo.uppercase ? "uppercase" : undefined }}>{slide.headline}</h2>
+          <p style={{ color: dark, fontSize: 28, fontWeight: typo.bodyWeight, lineHeight: 1.6, opacity: 0.8, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>{slide.body}</p>
+        </div>
+        <SlideBadge slideIndex={slideIndex} totalSlides={totalSlides} bgColor={dark} textColor="#fff" />
+        <LogoMark brand={brand} position={logoConf.position} opacity={logoConf.opacity} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ width: w, height: h, background: bg, position: "relative", overflow: "hidden", fontFamily: `'${brand.fonts?.headings || "Inter"}', sans-serif`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       {showWave && <WaveSVG color="#ffffff" position="bottom" heightPct={layout.waveHeightPct} />}
