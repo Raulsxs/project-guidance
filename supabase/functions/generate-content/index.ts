@@ -484,6 +484,8 @@ serve(async (req) => {
               notes: ts.notes || [],
               confidence: ts.confidence || "high",
               visual_signature: visualSig,
+              // CRITICAL: include layout_params for parameterized rendering
+              layout_params: ts.layout_params || null,
               // CRITICAL: include templates_by_role so post-processing uses correct IDs
               templates_by_role: ts.templates_by_role || deriveTemplatesByRoleFromSignature(visualSig),
             } as any;
@@ -832,6 +834,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
         logo_url: brandTokens.logo_url,
         style_guide: activeStyleGuide,
         visual_signature: (activeStyleGuide as any)?.visual_signature || null,
+        layout_params: (activeStyleGuide as any)?.layout_params || null,
         style_guide_version: brandTokens.style_guide_version,
       } : null,
     };
