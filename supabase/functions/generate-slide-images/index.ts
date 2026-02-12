@@ -169,60 +169,28 @@ function buildPrompt(
   articleContent?: string,
   contentFormat?: string,
 ): string {
-  const role = slide.role || (slideIndex === 0 ? "cover" : slideIndex === totalSlides - 1 ? "cta" : "content");
   const headline = slide.headline || "";
   const body = slide.body || "";
   const bullets = slide.bullets || [];
 
-  const formatStr = contentFormat === "story" ? "1080x1920 (Story, portrait 9:16)"
-    : contentFormat === "post" ? "1080x1350 (Post, portrait 4:5)"
-    : "1080x1350 (Carousel slide, portrait 4:5)";
+  // Build slide text content
+  const textParts: string[] = [];
+  if (headline) textParts.push(headline);
+  if (body) textParts.push(body);
+  if (bullets.length > 0) textParts.push(bullets.join("\n"));
 
-  let roleDesc = "";
-  switch (role) {
-    case "cover": roleDesc = "COVER slide — first slide, most visually striking, bold headline, grabs attention."; break;
-    case "context": roleDesc = "CONTEXT slide — provides background information clearly."; break;
-    case "insight": roleDesc = "INSIGHT slide — presents a key finding with supporting data."; break;
-    case "bullets": roleDesc = "BULLET POINTS slide — lists key items with visual markers."; break;
-    case "cta": roleDesc = "CTA/CLOSING slide — encourages engagement with a call-to-action."; break;
-    default: roleDesc = "Content slide presenting information clearly.";
-  }
+  const slideText = textParts.join("\n\n");
+  const articleRef = articleUrl ? `\nArtigo fonte: ${articleUrl}` : "";
+  const articleSnippet = articleContent ? `\n${articleContent.substring(0, 600)}` : "";
 
-  const paletteStr = brandInfo?.palette
-    ? (Array.isArray(brandInfo.palette)
-      ? brandInfo.palette.map((c: any) => typeof c === "string" ? c : c.hex).join(", ")
-      : "")
-    : "";
+  // Simple, direct prompt — just like what works when talking to Gemini directly
+  return `Crie o slide ${slideIndex + 1} de ${totalSlides} de um carrossel de Instagram sobre este conteúdo, seguindo EXATAMENTE o mesmo estilo visual das imagens de referência anexadas.
 
-  const brandBlock = brandInfo ? `
-BRAND: ${brandInfo.name}
-Colors: ${paletteStr}
-Visual tone: ${brandInfo.visual_tone || "professional"}
-${brandInfo.do_rules ? `DO: ${brandInfo.do_rules}` : ""}
-${brandInfo.dont_rules ? `DON'T: ${brandInfo.dont_rules}` : ""}` : "";
+Texto do slide:
+${slideText}
+${articleRef}${articleSnippet}
 
-  const articleBlock = articleUrl ? `\nSource: ${articleUrl}` : "";
-  const articleSnippet = articleContent ? `\nArticle excerpt: ${articleContent.substring(0, 800)}` : "";
-
-  return `I'm showing you reference images from a brand's Instagram. CREATE a NEW slide that follows the EXACT SAME visual style, layout, typography, colors, and design patterns.
-
-${roleDesc}
-
-SLIDE ${slideIndex + 1} of ${totalSlides} — Format: ${formatStr}
-${headline ? `HEADLINE: "${headline}"` : ""}
-${body ? `BODY: "${body}"` : ""}
-${bullets.length > 0 ? `BULLETS:\n${bullets.map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}` : ""}
-${brandBlock}${articleBlock}${articleSnippet}
-
-CRITICAL RULES:
-1. MATCH the visual style of the reference images EXACTLY — same colors, layout, decorative elements, card styles, background treatment
-2. Include ALL text content above, rendered beautifully and legibly on the slide
-3. The slide must be PORTRAIT format (${formatStr})
-4. Text must be LEGIBLE with proper contrast and sizing
-5. Maintain the brand's visual language consistently
-6. If references show phone mockups, cards, specific decorative elements — replicate them
-7. The result must look PROFESSIONAL and ready to publish
-8. DO NOT add random stock photos unless references show that pattern`;
+Use o mesmo layout, cores, tipografia, elementos decorativos e estilo das imagens de referência. O slide deve ter formato portrait (4:5, 1080x1350px).`;
 }
 
 // ══════ STORAGE UPLOAD ══════
