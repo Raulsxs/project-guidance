@@ -176,6 +176,7 @@ export default function ManualStudioEditor() {
     visual_tone: currentBrand.visual_tone || "clean",
     logo_url: currentBrand.logo_url,
     style_guide: resolvedTs?.template_set || currentBrand.style_guide || null,
+    visual_signature: resolvedTs?.template_set?.visual_signature || null,
   } : {
     name: "Modo Livre",
     palette: ["#667eea", "#764ba2", "#f093fb"],
@@ -183,6 +184,7 @@ export default function ManualStudioEditor() {
     visual_tone: "clean",
     logo_url: null,
     style_guide: null,
+    visual_signature: null,
   };
 
   // Apply template set templates to slides

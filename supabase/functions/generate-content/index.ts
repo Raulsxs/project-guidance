@@ -423,7 +423,7 @@ serve(async (req) => {
           console.log(`[generate-content] Loading template set: ${tsId} (source=${templateSetId ? 'selected' : 'default'})`);
           const { data: tsData, error: tsError } = await supabase
             .from("brand_template_sets")
-            .select("template_set, name")
+            .select("template_set, name, visual_signature")
             .eq("id", tsId)
             .single();
 
@@ -435,6 +435,9 @@ serve(async (req) => {
             templateSetName = tsData.name;
             templateSetNotes = ts.notes || [];
             
+            // Merge visual_signature from column or from template_set JSON
+            const visualSig = (tsData as any).visual_signature || ts.visual_signature || null;
+            
             // HARD LOCK: Build style guide EXCLUSIVELY from the template set
             const formatConfig = ts.formats?.[contentType];
             
@@ -442,19 +445,18 @@ serve(async (req) => {
               style_preset: ts.style_preset || "clean_minimal",
               brand_tokens: {
                 palette_roles: brand.style_guide?.brand_tokens?.palette_roles || {},
-                // Override typography/logo from template set FORMAT (not just top-level)
                 typography: formatConfig?.typography || brand.style_guide?.brand_tokens?.typography || {},
                 logo: formatConfig?.logo || brand.style_guide?.brand_tokens?.logo || {},
               },
-              // Use ONLY the template set formats
               formats: ts.formats || {},
               visual_patterns: ts.visual_patterns || brand.style_guide?.visual_patterns || [],
               notes: ts.notes || [],
               confidence: ts.confidence || "high",
+              visual_signature: visualSig,
             };
 
-            console.log(`[generate-content] template_set_resolved=${tsId} name="${templateSetName}" source=${templateSetId ? 'selected' : 'default'}`);
-            console.log(`[generate-content] HARD-LOCK applied. Format config: recommended_templates=${formatConfig?.recommended_templates?.join(',')}, slide_roles=${formatConfig?.slide_roles?.join(',')}, background_style=${formatConfig?.layout_rules?.background_style}, bullets_max=${formatConfig?.text_limits?.bullets_max}`);
+            console.log(`[generate-content] template_set_resolved=${tsId} name="${templateSetName}" source=${templateSetId ? 'selected' : 'default'} visual_signature=${JSON.stringify(visualSig)}`);
+            console.log(`[generate-content] HARD-LOCK applied. Format config: recommended_templates=${formatConfig?.recommended_templates?.join(',')}, slide_roles=${formatConfig?.slide_roles?.join(',')}, background_style=${formatConfig?.layout_rules?.background_style}, card_style=${visualSig?.card_style}`);
           }
         } else if (brand.style_guide) {
           // No template set selected - use brand base style guide
@@ -796,6 +798,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
         visual_tone: brandTokens.visual_tone,
         logo_url: brandTokens.logo_url,
         style_guide: activeStyleGuide,
+        visual_signature: (activeStyleGuide as any)?.visual_signature || null,
         style_guide_version: brandTokens.style_guide_version,
       } : null,
     };
