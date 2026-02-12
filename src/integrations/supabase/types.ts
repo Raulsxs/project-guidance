@@ -118,6 +118,8 @@ export type Database = {
       brand_template_sets: {
         Row: {
           brand_id: string
+          category_id: string | null
+          category_name: string | null
           created_at: string
           description: string | null
           id: string
@@ -126,9 +128,12 @@ export type Database = {
           status: string
           template_set: Json
           updated_at: string
+          visual_signature: Json | null
         }
         Insert: {
           brand_id: string
+          category_id?: string | null
+          category_name?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -137,9 +142,12 @@ export type Database = {
           status?: string
           template_set?: Json
           updated_at?: string
+          visual_signature?: Json | null
         }
         Update: {
           brand_id?: string
+          category_id?: string | null
+          category_name?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -148,6 +156,7 @@ export type Database = {
           status?: string
           template_set?: Json
           updated_at?: string
+          visual_signature?: Json | null
         }
         Relationships: [
           {
@@ -155,6 +164,13 @@ export type Database = {
             columns: ["brand_id"]
             isOneToOne: false
             referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_template_sets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "brand_example_categories"
             referencedColumns: ["id"]
           },
         ]
