@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Sparkles, Loader2, Star, Edit, Trash2, Square, Smartphone, Layers, AlertTriangle, RefreshCw } from "lucide-react";
+import TemplateSetPreview from "./TemplateSetPreview";
 
 interface TemplateSetsProps {
   brandId: string;
@@ -17,6 +18,10 @@ interface TemplateSetsProps {
   templateSetsDirty?: boolean;
   templateSetsDirtyCount?: number;
   templateSetsStatus?: string;
+  brandPalette?: any;
+  brandFonts?: any;
+  brandVisualTone?: string;
+  brandLogoUrl?: string | null;
 }
 
 interface TemplateSet {
@@ -52,7 +57,7 @@ function useTemplateSets(brandId: string) {
   });
 }
 
-export default function TemplateSetsSection({ brandId, brandName, defaultTemplateSetId, templateSetsDirty, templateSetsDirtyCount, templateSetsStatus }: TemplateSetsProps) {
+export default function TemplateSetsSection({ brandId, brandName, defaultTemplateSetId, templateSetsDirty, templateSetsDirtyCount, templateSetsStatus, brandPalette, brandFonts, brandVisualTone, brandLogoUrl }: TemplateSetsProps) {
   const queryClient = useQueryClient();
   const { data: templateSets, isLoading } = useTemplateSets(brandId);
   const [generating, setGenerating] = useState(false);
@@ -239,6 +244,16 @@ export default function TemplateSetsSection({ brandId, brandName, defaultTemplat
                     ))}
                   </div>
                 )}
+                <TemplateSetPreview
+                  templateSet={ts}
+                  brand={{
+                    name: brandName,
+                    palette: brandPalette || [],
+                    fonts: brandFonts || { headings: "Inter", body: "Inter" },
+                    visual_tone: brandVisualTone || "clean",
+                    logo_url: brandLogoUrl || null,
+                  }}
+                />
               </div>
             );
           })}

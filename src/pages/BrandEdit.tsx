@@ -247,6 +247,10 @@ export default function BrandEdit() {
                   templateSetsDirty={(brand as any).template_sets_dirty || false}
                   templateSetsDirtyCount={(brand as any).template_sets_dirty_count || 0}
                   templateSetsStatus={(brand as any).template_sets_status || "idle"}
+                  brandPalette={(brand as any).palette}
+                  brandFonts={(brand as any).fonts}
+                  brandVisualTone={(brand as any).visual_tone}
+                  brandLogoUrl={(brand as any).logo_url}
                 />
               </CardContent>
             </Card>
