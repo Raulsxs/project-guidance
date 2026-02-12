@@ -56,6 +56,29 @@ interface LayoutParams {
     corner_accents?: { enabled: boolean; color?: string; size?: number };
     border?: { enabled: boolean; color?: string; width?: number; radius?: number; inset?: number };
     divider_line?: { enabled: boolean; color?: string; width?: string; position?: string };
+    inner_frame?: { enabled: boolean; color?: string; width?: number; inset?: number; radius?: number };
+  };
+  secondary_card?: {
+    enabled: boolean;
+    position?: string;
+    bg_color?: string;
+    border_radius?: number;
+    padding?: number;
+    width_pct?: number;
+    content_type?: string;
+  };
+  device_mockup?: {
+    enabled: boolean;
+    type?: string;
+    position?: string;
+    width_pct?: number;
+    offset_y_pct?: number;
+    border_color?: string;
+    border_width?: number;
+    border_radius?: number;
+    show_notch?: boolean;
+    content_bg?: string;
+    shadow?: string;
   };
   logo?: { position: string; opacity: number; size?: number; bg_circle?: boolean };
   padding?: { x: number; y: number };
@@ -324,14 +347,91 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
         }} />
       )}
 
+      {/* Inner frame decoration */}
+      {params.decorations?.inner_frame?.enabled && (
+        <div style={{
+          position: "absolute",
+          inset: params.decorations.inner_frame.inset || 30,
+          border: `${params.decorations.inner_frame.width || 2}px solid ${params.decorations.inner_frame.color || accentColor}`,
+          borderRadius: params.decorations.inner_frame.radius || 0,
+          zIndex: 1,
+          pointerEvents: "none",
+        }} />
+      )}
+
+      {/* Device mockup */}
+      {params.device_mockup?.enabled && (
+        <div style={{
+          position: "absolute",
+          zIndex: 2,
+          ...(params.device_mockup.position === "right" ? { right: px, top: `${(params.device_mockup.offset_y_pct || 10)}%` }
+            : params.device_mockup.position === "left" ? { left: px, top: `${(params.device_mockup.offset_y_pct || 10)}%` }
+            : { left: "50%", transform: "translateX(-50%)", top: `${(params.device_mockup.offset_y_pct || 15)}%` }),
+          width: `${params.device_mockup.width_pct || 55}%`,
+        }}>
+          <div style={{
+            backgroundColor: params.device_mockup.border_color || "#333",
+            borderRadius: params.device_mockup.border_radius || 32,
+            padding: params.device_mockup.border_width || 8,
+            boxShadow: params.device_mockup.shadow === "strong" ? "0 20px 60px rgba(0,0,0,0.3)" : params.device_mockup.shadow === "soft" ? "0 12px 40px rgba(0,0,0,0.15)" : "none",
+          }}>
+            {params.device_mockup.show_notch !== false && (
+              <div style={{
+                width: "40%", height: 14, borderRadius: 10,
+                backgroundColor: params.device_mockup.border_color || "#333",
+                margin: "0 auto 6px",
+                position: "relative",
+                zIndex: 1,
+              }}>
+                <div style={{
+                  width: "100%", height: "100%", borderRadius: 10,
+                  backgroundColor: "#1a1a1a",
+                }} />
+              </div>
+            )}
+            <div style={{
+              backgroundColor: params.device_mockup.content_bg || "#ffffff",
+              borderRadius: (params.device_mockup.border_radius || 32) - (params.device_mockup.border_width || 8),
+              overflow: "hidden",
+              aspectRatio: "9/16",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <div style={{ padding: 20, textAlign: "center", color: "#666", fontSize: 16, fontFamily: `'${brand.fonts?.body || "Inter"}', sans-serif` }}>
+                {slide.body || "Conteúdo"}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main content area */}
       <div style={{
         flex: 1, display: "flex", flexDirection: "column",
         justifyContent: cardPosition === "bottom" ? "flex-end" : justifyContent,
         alignItems: textAlign === "center" ? "center" : textAlign === "right" ? "flex-end" : "flex-start",
         padding: cardEnabled && cardPosition === "bottom" ? `${py}px ${px}px 0` : `${py}px ${px}px`,
-        zIndex: 2, textAlign,
+        zIndex: 3, textAlign,
       }}>
+        {/* Secondary card (e.g., headline at top when main card is at bottom) */}
+        {params.secondary_card?.enabled && params.secondary_card.position === "top" && (
+          <div style={{
+            backgroundColor: params.secondary_card.bg_color || "#ffffff",
+            borderRadius: params.secondary_card.border_radius || 16,
+            padding: params.secondary_card.padding || 32,
+            width: `${params.secondary_card.width_pct || 85}%`,
+            marginBottom: 24,
+            textAlign,
+          }}>
+            <h2 style={{
+              color: isLightColor(params.secondary_card.bg_color || "#ffffff") ? "#1a1a2e" : "#ffffff",
+              fontSize: params.text.headline_size * 0.8,
+              fontWeight: params.text.headline_weight,
+              lineHeight: 1.2,
+              textTransform: params.text.headline_uppercase ? "uppercase" : undefined,
+            }}>{params.secondary_card.content_type === "body" ? slide.body : slide.headline}</h2>
+          </div>
+        )}
+
         {/* Card wrapper (optional) */}
         {cardEnabled ? (
           <div style={{
@@ -352,6 +452,25 @@ const ParameterizedTemplate = ({ slide, brand, dimensions, slideIndex, totalSlid
         ) : (
           <div style={{ maxWidth: maxTextWidth }}>
             {renderContent(textColors, accentColor, false)}
+          </div>
+        )}
+
+        {/* Secondary card at bottom */}
+        {params.secondary_card?.enabled && params.secondary_card.position === "bottom" && (
+          <div style={{
+            backgroundColor: params.secondary_card.bg_color || "#ffffff",
+            borderRadius: params.secondary_card.border_radius || 16,
+            padding: params.secondary_card.padding || 32,
+            width: `${params.secondary_card.width_pct || 85}%`,
+            marginTop: 24,
+            textAlign,
+          }}>
+            <p style={{
+              color: isLightColor(params.secondary_card.bg_color || "#ffffff") ? "#1a1a2e" : "#ffffff",
+              fontSize: params.text.body_size,
+              fontWeight: params.text.body_weight,
+              lineHeight: 1.5,
+            }}>{params.secondary_card.content_type === "headline" ? slide.headline : slide.body}</p>
           </div>
         )}
       </div>

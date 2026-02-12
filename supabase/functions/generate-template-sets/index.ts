@@ -343,9 +343,11 @@ Your output will be used by a programmatic renderer that supports these visual f
 - Decorative shapes: SVG wave curves, diagonal clip cuts, horizontal divider bars
 - Content cards: floating rounded/sharp rectangles with optional shadow, positioned center/bottom/top
 - Text: any alignment (left/center/right), any vertical position (top/center/bottom), with configurable size/weight/case
-- Decorative elements: accent bars (horizontal lines above/below headlines), corner accents (gradient triangles), borders
+- Decorative elements: accent bars (horizontal lines above/below headlines), corner accents (gradient triangles), borders, inner frames
 - Logo: any position (top-left, top-center, top-right, bottom-left, bottom-center, bottom-right)
 - Bullets: numbered circles, checkmarks, dashes, with optional container card
+- Device mockups: phone frame overlaying the background (for showcasing app screens, articles, etc.)
+- Multiple text boxes: separate floating cards for headline and body content
 
 BRAND CONTEXT:
 - Name: ${brand.name}
@@ -368,22 +370,23 @@ ${exampleMeta}
 ANALYSIS INSTRUCTIONS - DO THIS STEP BY STEP:
 ═══════════════════════════════════════
 
-STEP 1: For EACH image, write down (mentally) what you see:
+STEP 1: For EACH image, write down (mentally) what you see — BE EXTREMELY PRECISE:
 - What is the dominant background? A dark solid color? A photo with overlay? A light gradient?
 - Is there a card/box containing text? What shape? Rounded corners or sharp? Floating in center or anchored to bottom?
+- Are there MULTIPLE separate cards/boxes? (e.g., one for headline at top, one for body at bottom)
+- Is there a DEVICE MOCKUP (phone/tablet frame) showing content (like an article, app screenshot, etc.)? Where is it positioned? What percentage of the canvas does it occupy?
 - Where is text positioned? Top-left? Center? Bottom-center?
 - Is the headline UPPERCASE or mixed case? Bold or thin? What approximate font size relative to canvas width?
 - Is there a wave/curve shape? At top or bottom? What percentage of the canvas height?
 - Is there a diagonal cut or angular shape instead of a wave?
-- Are there decorative elements? Accent lines? Corner shapes? Borders?
+- Are there decorative elements? Accent lines? Corner shapes? Borders? Inner frames (a rectangle border inset from the edges)?
 - Where is the logo? What size relative to the canvas?
-- What specific hex colors do you see for: background, text, accent elements? Match them to the brand palette.
+- What specific hex colors do you see for: background, text, accent elements, cards? Match them to the brand palette.
+- Is there any OVERLAY text on top of an image or mockup?
+- Are there any visual separators between sections (lines, dots, icons)?
+- Is there a semi-transparent overlay/gradient over part of the canvas?
 
 STEP 2: Map each image to a ROLE: "cover", "content", "bullets", "cta"
-- cover = first slide, usually has the main title
-- content = text-heavy informational slides
-- bullets = slides with lists/steps
-- cta = last slide with call-to-action
 
 STEP 3: For each role, create precise layout_params based on WHAT YOU ACTUALLY SEE.
 
@@ -399,10 +402,12 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
   "visual_signature": {
     "theme_variant": "DESCRIBE: e.g. dark_navy_gradient, light_clinical_cards, warm_earth_editorial",
     "primary_bg_mode": "solid | gradient | photo_overlay",
-    "card_style": "none | rounded_floating | sharp_bottom | full_width_strip | rounded_bottom",
+    "card_style": "none | rounded_floating | sharp_bottom | full_width_strip | rounded_bottom | multi_card",
     "decorative_shape": "wave_bottom | wave_top | diagonal_cut | none | horizontal_bar",
     "accent_usage": "minimal | moderate | strong",
-    "text_on_dark_bg": true
+    "text_on_dark_bg": true,
+    "has_device_mockup": false,
+    "has_inner_frame": false
   },
   "layout_params": {
     "cover": {
@@ -430,6 +435,28 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
         "width_pct": 85,
         "border": "none | 1px solid #hex"
       },
+      "secondary_card": {
+        "enabled": false,
+        "position": "top | bottom",
+        "bg_color": "#hex",
+        "border_radius": 16,
+        "padding": 32,
+        "width_pct": 85,
+        "content_type": "headline | body | label"
+      },
+      "device_mockup": {
+        "enabled": false,
+        "type": "phone | tablet",
+        "position": "center | right | left",
+        "width_pct": 55,
+        "offset_y_pct": 10,
+        "border_color": "#hex",
+        "border_width": 8,
+        "border_radius": 32,
+        "show_notch": true,
+        "content_bg": "#hex",
+        "shadow": "none | soft | strong"
+      },
       "text": {
         "alignment": "left | center | right",
         "vertical_position": "top | center | bottom",
@@ -449,7 +476,8 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
         "accent_bar": { "enabled": true, "position": "above_headline | below_headline | above_body", "width": 60, "height": 6, "color": "#hex" },
         "corner_accents": { "enabled": false, "color": "#hex", "size": 120 },
         "border": { "enabled": false, "color": "#hex", "width": 2, "radius": 0, "inset": 20 },
-        "divider_line": { "enabled": false, "color": "#hex", "width": "60%", "position": "between_headline_body" }
+        "divider_line": { "enabled": false, "color": "#hex", "width": "60%", "position": "between_headline_body" },
+        "inner_frame": { "enabled": false, "color": "#hex", "width": 2, "inset": 30, "radius": 0 }
       },
       "logo": { "position": "bottom-center | top-left | top-right | bottom-right", "opacity": 1, "size": 48, "bg_circle": false },
       "padding": { "x": 70, "y": 80 }
@@ -504,21 +532,23 @@ CRITICAL RULES:
    - bg.colors[0] = the dominant background color you see
    - bg.colors[1] = secondary gradient color (if gradient) or same as [0] for solid
    - text.headline_color and text.body_color = the ACTUAL text colors visible in the images
-   - accent_bar.color = the accent/highlight color you see
-   - shape.color = the color of any wave/curve shape you see
+   - card.bg_color = the EXACT background color of text boxes (often white #FFFFFF)
 
 3. STRUCTURE: Each role MUST have DIFFERENT structural characteristics if the reference images show different layouts.
-   - If cover has text on left with photo bg, set alignment="left", bg.type="photo_overlay"
-   - If content slides have a white card on colored bg, set card.enabled=true, card.bg_color="#ffffff"
-   - If bullets have numbered items in a container, set bullet_style.container.enabled=true
 
 4. SHAPES: Only set shape.type="wave" if you ACTUALLY SEE a curved/wave shape. If you see a diagonal cut, use "diagonal". If the background is plain, use "none".
 
-5. CARDS: Only set card.enabled=true if you see a visible rectangular container around the text (like a floating card or panel). If text sits directly on the background, card.enabled=false.
+5. CARDS: Only set card.enabled=true if you see a visible rectangular container around the text. If text sits directly on the background, card.enabled=false.
 
-6. TEXT SHADOW: If text is on a photo or dark gradient, set text_shadow="subtle" or "strong" for readability.
+6. DEVICE MOCKUPS: If you see a phone/tablet frame showing content (article, app screen, etc.), set device_mockup.enabled=true. This is a common pattern in healthcare/tech content marketing. The mockup is rendered as a visible frame with rounded corners, optional notch, and shadow.
 
-7. The "name" MUST be exactly "${cat.name}".
+7. SECONDARY CARDS: If you see MULTIPLE separate text boxes, use secondary_card to describe the additional card.
 
-8. Every layout_params role (cover, content, bullets, cta) MUST have the FULL structure shown above. Do NOT abbreviate with "...same structure...". Write out every field completely.`;
+8. INNER FRAME: If you see a decorative border/frame set INWARD from the canvas edges, set decorations.inner_frame.enabled=true.
+
+9. TEXT SHADOW: If text is on a photo or dark gradient, set text_shadow="subtle" or "strong" for readability.
+
+10. The "name" MUST be exactly "${cat.name}".
+
+11. Every layout_params role (cover, content, bullets, cta) MUST have the FULL structure shown above. Do NOT abbreviate with "...same structure...". Write out every field completely.`;
 }
