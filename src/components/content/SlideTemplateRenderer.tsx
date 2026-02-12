@@ -926,9 +926,16 @@ export function resolveTemplateForSlide(
   templateSet: any | null,
   role: string,
 ): string {
+  // 1. Check templates_by_role (new system — unique IDs per pillar)
+  const tbr = templateSet?.templates_by_role as Record<string, string> | undefined;
+  if (tbr?.[role]) return tbr[role];
+
+  // 2. Check layout_params (parameterized rendering)
   if (templateSet?.layout_params?.[role] || templateSet?.layout_params?.["content"]) {
     return "parameterized";
   }
+
+  // 3. Legacy fallback
   const roleMap: Record<string, string> = {
     cover: "wave_cover", context: "wave_text_card", content: "wave_text_card",
     insight: "wave_bullets", bullets: "wave_bullets", quote: "wave_text_card",
@@ -943,21 +950,58 @@ export function getTemplateForSlide(slideIndex: number, totalSlides: number, sty
   return "wave_text_card";
 }
 
+// ══════ TEMPLATE MISSING FALLBACK ══════
+
+const TemplateMissing = ({ templateId, role, brand }: { templateId: string; role: string; brand: BrandSnapshot }) => {
+  const pilar = (brand as any)?.pilar_editorial || "?";
+  const setId = (brand as any)?.template_set_id || "?";
+  return (
+    <div style={{
+      width: "100%", height: "100%", display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", gap: 16,
+      background: "#1a1a2e", color: "#ff6b6b", fontFamily: "monospace", padding: 40,
+      textAlign: "center",
+    }}>
+      <div style={{ fontSize: 48 }}>⚠️</div>
+      <div style={{ fontSize: 20, fontWeight: 700 }}>TEMPLATE MISSING</div>
+      <div style={{ fontSize: 14, color: "#aaa", lineHeight: 1.8 }}>
+        <div>template_id: <span style={{ color: "#ff6b6b" }}>{templateId}</span></div>
+        <div>role: <span style={{ color: "#ffd93d" }}>{role}</span></div>
+        <div>pilar: <span style={{ color: "#6bcb77" }}>{pilar}</span></div>
+        <div>template_set_id: <span style={{ color: "#4d96ff" }}>{typeof setId === "string" ? setId.substring(0, 12) : setId}...</span></div>
+      </div>
+      <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
+        Este template não existe no registry. Regenere os Estilos de Conteúdo.
+      </div>
+    </div>
+  );
+};
+
 // ══════ MAIN RENDERER ══════
 
 const SlideTemplateRenderer = (props: SlideTemplateRendererProps) => {
   const templateName = props.template || props.slide.templateHint || props.slide.template || "wave_cover";
+  const role = props.slide.role || (props.slideIndex === 0 ? "cover" : "content");
 
-  // Try parameterized template first (new system)
+  // 1. Try parameterized template (new system with layout_params)
   const hasLayoutParams = getLayoutParams(props.brand) !== null;
   if (hasLayoutParams || templateName === "parameterized") {
     const result = ParameterizedTemplate(props);
     if (result) return result;
   }
 
-  // Fallback to legacy templates
-  const Component = LegacyTemplateMap[templateName] || WaveCoverTemplate;
-  return <Component {...props} />;
+  // 2. Try legacy template map
+  const Component = LegacyTemplateMap[templateName];
+  if (Component) return <Component {...props} />;
+
+  // 3. If template ID is a custom pillar-specific ID (not in legacy map and no layout_params)
+  //    → show "Template Missing" instead of silent fallback
+  if (templateName !== "wave_cover" && templateName !== "parameterized" && !hasLayoutParams) {
+    return <TemplateMissing templateId={templateName} role={role} brand={props.brand} />;
+  }
+
+  // 4. Ultimate fallback
+  return <WaveCoverTemplate {...props} />;
 };
 
 // ══════ EXPORT TO PNG ══════
