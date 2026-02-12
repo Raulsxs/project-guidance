@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useBrands, useDeleteBrand } from "@/hooks/useStudio";
 import { VISUAL_TONES } from "@/types/studio";
-import { Plus, Palette, Trash2, Edit, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Palette, Trash2, Edit, Sparkles, Loader2, Copy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -16,6 +16,102 @@ export default function Brands() {
   const { data: brands, isLoading, refetch } = useBrands();
   const deleteBrand = useDeleteBrand();
   const [analyzingBrandId, setAnalyzingBrandId] = useState<string | null>(null);
+  const [duplicatingBrandId, setDuplicatingBrandId] = useState<string | null>(null);
+
+  const handleDuplicate = async (brand: any) => {
+    setDuplicatingBrandId(brand.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Não autenticado");
+
+      // 1. Duplicate brand
+      const { data: newBrand, error: brandErr } = await supabase
+        .from("brands")
+        .insert({
+          name: `${brand.name} (cópia)`,
+          owner_user_id: user.id,
+          palette: brand.palette,
+          fonts: brand.fonts,
+          visual_tone: brand.visual_tone,
+          do_rules: brand.do_rules,
+          dont_rules: brand.dont_rules,
+          logo_url: brand.logo_url,
+          style_guide: (brand as any).style_guide,
+        } as any)
+        .select()
+        .single();
+      if (brandErr) throw brandErr;
+
+      // 2. Duplicate categories
+      const { data: cats } = await supabase
+        .from("brand_example_categories")
+        .select("*")
+        .eq("brand_id", brand.id);
+
+      const catMap: Record<string, string> = {};
+      if (cats && cats.length > 0) {
+        for (const cat of cats) {
+          const { data: newCat } = await supabase
+            .from("brand_example_categories")
+            .insert({ brand_id: newBrand.id, name: cat.name, description: cat.description } as any)
+            .select()
+            .single();
+          if (newCat) catMap[cat.id] = newCat.id;
+        }
+      }
+
+      // 3. Duplicate examples
+      const { data: examples } = await supabase
+        .from("brand_examples")
+        .select("*")
+        .eq("brand_id", brand.id);
+
+      if (examples && examples.length > 0) {
+        const exInserts = examples.map((ex: any) => ({
+          brand_id: newBrand.id,
+          image_url: ex.image_url,
+          thumb_url: ex.thumb_url,
+          description: ex.description,
+          content_type: ex.content_type,
+          type: ex.type,
+          subtype: ex.subtype,
+          category_id: ex.category_id ? (catMap[ex.category_id] || null) : null,
+          category_mode: ex.category_mode,
+          carousel_group_id: ex.carousel_group_id,
+          slide_index: ex.slide_index,
+        }));
+        await supabase.from("brand_examples").insert(exInserts as any);
+      }
+
+      // 4. Duplicate template sets
+      const { data: tsets } = await supabase
+        .from("brand_template_sets")
+        .select("*")
+        .eq("brand_id", brand.id);
+
+      if (tsets && tsets.length > 0) {
+        const tsInserts = tsets.map((ts: any) => ({
+          brand_id: newBrand.id,
+          name: ts.name,
+          description: ts.description,
+          template_set: ts.template_set,
+          visual_signature: ts.visual_signature,
+          status: ts.status,
+          category_id: ts.category_id ? (catMap[ts.category_id] || null) : null,
+          category_name: ts.category_name,
+          source_example_ids: ts.source_example_ids,
+        }));
+        await supabase.from("brand_template_sets").insert(tsInserts as any);
+      }
+
+      toast.success("Marca duplicada com sucesso!");
+      refetch();
+    } catch (err: any) {
+      toast.error("Erro ao duplicar: " + (err.message || "Tente novamente"));
+    } finally {
+      setDuplicatingBrandId(null);
+    }
+  };
 
   const handleDelete = async (id: string) => {
     if (confirm("Tem certeza que deseja excluir esta marca? Todos os projetos associados serão excluídos.")) {
@@ -93,6 +189,19 @@ export default function Brands() {
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
                           <Sparkles className="w-4 h-4 text-primary" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDuplicate(brand)}
+                        disabled={duplicatingBrandId === brand.id}
+                        title="Duplicar marca"
+                      >
+                        {duplicatingBrandId === brand.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
                         )}
                       </Button>
                       <Button variant="ghost" size="icon" onClick={() => navigate(`/brands/${brand.id}/edit`)}>
