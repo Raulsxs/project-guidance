@@ -484,7 +484,9 @@ serve(async (req) => {
               notes: ts.notes || [],
               confidence: ts.confidence || "high",
               visual_signature: visualSig,
-            };
+              // CRITICAL: include templates_by_role so post-processing uses correct IDs
+              templates_by_role: ts.templates_by_role || deriveTemplatesByRoleFromSignature(visualSig),
+            } as any;
 
             console.log(`[generate-content] template_set_resolved=${tsId} name="${templateSetName}" source=${templateSetId ? 'selected' : 'default'} visual_signature=${JSON.stringify(visualSig)}`);
             console.log(`[generate-content] HARD-LOCK applied. Format config: recommended_templates=${formatConfig?.recommended_templates?.join(',')}, slide_roles=${formatConfig?.slide_roles?.join(',')}, background_style=${formatConfig?.layout_rules?.background_style}, card_style=${visualSig?.card_style}`);

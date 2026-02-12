@@ -276,20 +276,26 @@ export default function ManualStudioEditor() {
 
       const content = data.content;
 
-      // Fill slides from AI response
+      // Fill slides from AI response — then RE-APPLY template set IDs
       if (content.slides && content.slides.length > 0) {
-        setSlides(content.slides.map((s: any) => ({
-          headline: s.headline || "",
-          body: s.body || "",
-          bullets: s.bullets || undefined,
-          template: s.template || s.templateHint || "wave_cover",
-          templateHint: s.templateHint || s.template || "wave_cover",
-          role: s.role || "cover",
-          previewImage: s.previewImage || undefined,
-          speakerNotes: s.speakerNotes || "",
-          illustrationPrompt: s.illustrationPrompt || "",
-          imagePrompt: s.imagePrompt || "",
-        })));
+        const ts = resolvedTs?.template_set || null;
+        setSlides(content.slides.map((s: any) => {
+          const role = s.role || "cover";
+          // CRITICAL: Use template set mapping, NOT what AI returned
+          const tpl = resolveTemplateForSlide(ts, role);
+          return {
+            headline: s.headline || "",
+            body: s.body || "",
+            bullets: s.bullets || undefined,
+            template: tpl,
+            templateHint: tpl,
+            role,
+            previewImage: s.previewImage || undefined,
+            speakerNotes: s.speakerNotes || "",
+            illustrationPrompt: s.illustrationPrompt || "",
+            imagePrompt: s.imagePrompt || "",
+          };
+        }));
         setCurrentSlide(0);
       }
 

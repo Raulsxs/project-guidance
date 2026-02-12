@@ -568,17 +568,27 @@ const TemplateMap: Record<string, React.FC<SlideTemplateRendererProps>> = {
   wave_closing: WaveClosingTemplate,
   wave_closing_cta: WaveClosingTemplate,
   wave_cta: WaveClosingTemplate,
-  // Editorial dark — multiple aliases so any naming convention works
+  // Editorial dark — canonical IDs
   editorial_cover: EditorialDarkCoverTemplate,
   editorial_text: EditorialDarkTextTemplate,
   editorial_bullets: EditorialDarkBulletsTemplate,
   editorial_cta: EditorialDarkCtaTemplate,
   editorial_quote: EditorialDarkTextTemplate,
   editorial_question: EditorialDarkTextTemplate,
+  // Editorial dark — DB aliases (dark_full_bleed_editorial_*)
+  dark_full_bleed_editorial_cover: EditorialDarkCoverTemplate,
+  dark_full_bleed_editorial_text: EditorialDarkTextTemplate,
+  dark_full_bleed_editorial_bullets: EditorialDarkBulletsTemplate,
+  dark_full_bleed_editorial_closing: EditorialDarkCtaTemplate,
+  // Editorial dark — legacy aliases
   dark_cover_bold_text: EditorialDarkCoverTemplate,
   dark_full_text_slide: EditorialDarkTextTemplate,
   dark_bullet_points: EditorialDarkBulletsTemplate,
   dark_cta_slide: EditorialDarkCtaTemplate,
+  cover_dark_bleed: EditorialDarkCoverTemplate,
+  text_dark_bleed: EditorialDarkTextTemplate,
+  bullets_dark_bleed: EditorialDarkBulletsTemplate,
+  closing_dark_bleed: EditorialDarkCtaTemplate,
   // Story
   story_cover: StoryCoverTemplate,
   story_tip: StoryTipTemplate,
@@ -654,8 +664,11 @@ export function getTemplateForSlide(slideIndex: number, totalSlides: number, sty
 
 const SlideTemplateRenderer = (props: SlideTemplateRendererProps) => {
   const templateName = props.template || props.slide.templateHint || props.slide.template || getTemplateForSlide(props.slideIndex, props.totalSlides, props.brand.style_guide as any);
-  const Component = TemplateMap[templateName] || WaveCoverTemplate;
-  return <Component {...props} />;
+  const Component = TemplateMap[templateName];
+  if (!Component) {
+    console.error(`[SlideTemplateRenderer] Template "${templateName}" NOT FOUND in registry. Available: ${Object.keys(TemplateMap).join(', ')}`);
+  }
+  return Component ? <Component {...props} /> : <WaveCoverTemplate {...props} />;
 };
 
 // ══════ EXPORT TO PNG ══════
