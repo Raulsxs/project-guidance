@@ -314,31 +314,50 @@ export default function ManualStudioEditor() {
       toast.success("Texto gerado! Gerando imagens dos slides...");
       setGenerating(false);
 
-      // ══════ STEP 2: Generate slide images with AI ══════
+      // ══════ STEP 2: Generate slide images (one per call, in parallel) ══════
       if (brandId && newSlides.length > 0) {
         setGeneratingImages(true);
-        setImageGenProgress(`Gerando imagem 1/${newSlides.length}...`);
+        const contentId = `studio-${Date.now()}`;
+        let completedCount = 0;
+        setImageGenProgress(`Gerando imagens 0/${newSlides.length}...`);
+
         try {
-          const { data: imgData, error: imgError } = await supabase.functions.invoke("generate-slide-images", {
-            body: {
-              brandId,
-              slides: newSlides,
-              articleUrl: notes || undefined,
-              articleContent: "",
-              contentId: `studio-${Date.now()}`,
-            },
+          const promises = newSlides.map((s, i) =>
+            supabase.functions.invoke("generate-slide-images", {
+              body: {
+                brandId,
+                slide: s,
+                slideIndex: i,
+                totalSlides: newSlides.length,
+                contentFormat: selectedFormat,
+                articleUrl: notes || undefined,
+                articleContent: "",
+                contentId,
+              },
+            }).then(result => {
+              completedCount++;
+              setImageGenProgress(`Gerando imagens ${completedCount}/${newSlides.length}...`);
+              return { index: i, data: result.data, error: result.error };
+            })
+          );
+
+          const results = await Promise.allSettled(promises);
+
+          setSlides(prev => {
+            const updated = [...prev];
+            for (const result of results) {
+              if (result.status === "fulfilled" && result.value.data?.imageUrl) {
+                const { index, data } = result.value;
+                updated[index] = { ...updated[index], previewImage: data.imageUrl };
+              }
+            }
+            return updated;
           });
 
-          if (imgError) throw imgError;
-
-          if (imgData?.success && imgData.slides) {
-            setSlides(prev => prev.map((s, i) => ({
-              ...s,
-              previewImage: imgData.slides[i]?.previewImage || s.previewImage,
-            })));
-            const generatedCount = imgData.slides.filter((s: any) => s.previewImage).length;
-            toast.success(`${generatedCount} imagens geradas pela IA!`);
-          }
+          const successCount = results.filter(r =>
+            r.status === "fulfilled" && r.value.data?.imageUrl
+          ).length;
+          toast.success(`${successCount}/${newSlides.length} imagens geradas!`);
         } catch (imgErr: any) {
           console.error("Image generation error:", imgErr);
           toast.error("Erro ao gerar imagens: " + (imgErr.message || "Tente novamente"));
@@ -369,18 +388,20 @@ export default function ManualStudioEditor() {
       const { data, error } = await supabase.functions.invoke("generate-slide-images", {
         body: {
           brandId,
-          slides,
+          slide: slides[index],
           slideIndex: index,
+          totalSlides: slides.length,
+          contentFormat: selectedFormat,
           articleUrl: notes || undefined,
           contentId: `studio-regen-${Date.now()}`,
         },
       });
 
       if (error) throw error;
-      if (data?.success && data.slides) {
+      if (data?.imageUrl) {
         setSlides(prev => prev.map((s, i) => ({
           ...s,
-          previewImage: i === index ? (data.slides[index]?.previewImage || s.previewImage) : s.previewImage,
+          previewImage: i === index ? data.imageUrl : s.previewImage,
         })));
         toast.success("Imagem regenerada!");
       }
