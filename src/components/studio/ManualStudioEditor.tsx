@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,7 @@ interface TemplateSetOption {
   name: string;
   description: string | null;
   template_set: any;
+  category_name: string | null;
 }
 
 interface SlideData {
@@ -69,24 +70,42 @@ const STYLES = [
   { id: "curiosity", name: "Curiosidade", icon: HelpCircle },
 ];
 
-const CAROUSEL_ROLES = ["cover", "context", "insight", "insight", "closing"];
-
-function getDefaultSlides(format: string, templateSet?: any): SlideData[] {
-  if (format === "carousel") {
-    return CAROUSEL_ROLES.map((role) => {
-      const tpl = resolveTemplateForSlide(templateSet, role);
-      return {
-        headline: "",
-        body: "",
-        bullets: role === "insight" ? [""] : undefined,
-        role,
-        template: tpl,
-        templateHint: tpl,
-      };
-    });
+// Build initial slide array dynamically based on count + CTA toggle + template set
+function buildSlideArray(
+  format: string,
+  count: number,
+  includeCta: boolean,
+  templateSet?: any,
+): SlideData[] {
+  if (format !== "carousel") {
+    const tpl = format === "story" ? "story_cover" : resolveTemplateForSlide(templateSet, "cover");
+    return [{ headline: "", body: "", template: tpl, templateHint: tpl, role: "cover" }];
   }
-  const tpl = format === "story" ? "story_cover" : resolveTemplateForSlide(templateSet, "cover");
-  return [{ headline: "", body: "", template: tpl, templateHint: tpl, role: "cover" }];
+
+  const tbr = templateSet?.templates_by_role as Record<string, string> | undefined;
+
+  // Build role sequence dynamically
+  const roles: string[] = ["cover"];
+  const contentSlots = includeCta ? count - 2 : count - 1;
+  for (let i = 0; i < Math.max(0, contentSlots); i++) {
+    if (i === 0) roles.push("context");
+    else if (i === contentSlots - 1) roles.push("bullets");
+    else roles.push("insight");
+  }
+  if (includeCta) roles.push("cta");
+
+  return roles.map((role) => {
+    // Use templates_by_role if available, otherwise resolve from layout_params
+    const tpl = tbr?.[role] || resolveTemplateForSlide(templateSet, role);
+    return {
+      headline: role === "cta" ? "Gostou do conteúdo?" : "",
+      body: role === "cta" ? "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌" : "",
+      bullets: (role === "insight" || role === "bullets") ? [""] : undefined,
+      role,
+      template: tpl,
+      templateHint: tpl,
+    };
+  });
 }
 
 // ── Component ──
@@ -104,13 +123,13 @@ export default function ManualStudioEditor() {
 
   // Carousel controls
   const [slideCountMode, setSlideCountMode] = useState<"auto" | "fixed">("auto");
-  const [slideCountVal, setSlideCountVal] = useState(5);
+  const [slideCountVal, setSlideCountVal] = useState(6);
   const [includeCta, setIncludeCta] = useState(true);
 
   // Data
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [templateSets, setTemplateSets] = useState<TemplateSetOption[]>([]);
-  const [slides, setSlides] = useState<SlideData[]>(getDefaultSlides("carousel"));
+  const [slides, setSlides] = useState<SlideData[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -141,7 +160,7 @@ export default function ManualStudioEditor() {
       const load = async () => {
         const { data } = await supabase
           .from("brand_template_sets")
-          .select("id, name, description, template_set")
+          .select("id, name, description, template_set, category_name")
           .eq("brand_id", selectedBrand)
           .eq("status", "active")
           .order("created_at");
@@ -154,12 +173,6 @@ export default function ManualStudioEditor() {
     setSelectedTemplateSet("auto");
   }, [selectedBrand]);
 
-  // ── Reset slides when format changes ──
-  useEffect(() => {
-    setSlides(getDefaultSlides(selectedFormat, resolvedTs?.template_set));
-    setCurrentSlide(0);
-  }, [selectedFormat]);
-
   // ── Resolve brand snapshot for preview ──
   const currentBrand = brands.find(b => b.id === selectedBrand);
   const defaultTsId = currentBrand?.default_template_set_id || null;
@@ -167,15 +180,38 @@ export default function ManualStudioEditor() {
   const resolvedTsId = selectedTemplateSet === "auto" ? defaultTsId : selectedTemplateSet;
   const resolvedTs = templateSets.find(ts => ts.id === resolvedTsId);
 
+  // Resolved template set data for slide building
+  const activeTemplateSetData = resolvedTs?.template_set || null;
+  const pilarEditorial = resolvedTs?.category_name || resolvedTs?.name || null;
+
+  // Effective slide count for "auto" mode
+  const autoSlideCount = useMemo(() => {
+    const range = activeTemplateSetData?.formats?.carousel?.slide_count_range as [number, number] | undefined;
+    const min = range?.[0] || 4;
+    const max = range?.[1] || 8;
+    return Math.round((min + max) / 2);
+  }, [activeTemplateSetData]);
+
+  const effectiveSlideCount = slideCountMode === "fixed" ? slideCountVal : autoSlideCount;
+
+  // ── Rebuild slides when format/count/CTA/template set changes ──
+  useEffect(() => {
+    setSlides(buildSlideArray(selectedFormat, effectiveSlideCount, includeCta, activeTemplateSetData));
+    setCurrentSlide(0);
+  }, [selectedFormat, effectiveSlideCount, includeCta, resolvedTsId]);
+
   const brandSnapshot = currentBrand ? {
     name: currentBrand.name,
     palette: currentBrand.palette || [],
     fonts: currentBrand.fonts || { headings: "Inter", body: "Inter" },
     visual_tone: currentBrand.visual_tone || "clean",
     logo_url: currentBrand.logo_url,
-    style_guide: resolvedTs?.template_set || currentBrand.style_guide || null,
-    visual_signature: resolvedTs?.template_set?.visual_signature || null,
-    layout_params: resolvedTs?.template_set?.layout_params || null,
+    style_guide: activeTemplateSetData || currentBrand.style_guide || null,
+    visual_signature: activeTemplateSetData?.visual_signature || null,
+    layout_params: activeTemplateSetData?.layout_params || null,
+    templates_by_role: activeTemplateSetData?.templates_by_role || null,
+    pilar_editorial: pilarEditorial,
+    template_set_id: resolvedTsId,
   } : {
     name: "Modo Livre",
     palette: ["#667eea", "#764ba2", "#f093fb"],
@@ -185,17 +221,10 @@ export default function ManualStudioEditor() {
     style_guide: null,
     visual_signature: null,
     layout_params: null,
+    templates_by_role: null,
+    pilar_editorial: null,
+    template_set_id: null,
   };
-
-  // Apply template set templates to slides — uses resolveTemplateForSlide for deterministic mapping
-  useEffect(() => {
-    const ts = resolvedTs?.template_set || null;
-    setSlides(prev => prev.map(s => {
-      const role = s.role || "content";
-      const tpl = resolveTemplateForSlide(ts, role);
-      return { ...s, template: tpl, templateHint: tpl };
-    }));
-  }, [resolvedTsId, selectedFormat]);
 
   // ── Slide editing ──
   const updateSlide = (index: number, field: keyof SlideData, value: any) => {
@@ -280,13 +309,14 @@ export default function ManualStudioEditor() {
 
       const content = data.content;
 
-      // Fill slides from AI response
+      // Fill slides from AI response, enforcing template set templates
       let newSlides: SlideData[] = [];
       if (content.slides && content.slides.length > 0) {
-        const ts = resolvedTs?.template_set || null;
+        const tbr = activeTemplateSetData?.templates_by_role as Record<string, string> | undefined;
         newSlides = content.slides.map((s: any) => {
           const role = s.role || "cover";
-          const tpl = resolveTemplateForSlide(ts, role);
+          // HARD LOCK: Use templates_by_role from template set first
+          const tpl = tbr?.[role] || resolveTemplateForSlide(activeTemplateSetData, role);
           return {
             headline: s.headline || "",
             body: s.body || "",
@@ -300,6 +330,27 @@ export default function ManualStudioEditor() {
             imagePrompt: s.imagePrompt || "",
           };
         });
+
+        // Enforce CTA slide
+        if (selectedFormat === "carousel" && includeCta) {
+          const lastSlide = newSlides[newSlides.length - 1];
+          if (lastSlide?.role !== "cta") {
+            const ctaTpl = tbr?.cta || resolveTemplateForSlide(activeTemplateSetData, "cta");
+            newSlides.push({
+              role: "cta",
+              template: ctaTpl,
+              templateHint: ctaTpl,
+              headline: "Gostou do conteúdo?",
+              body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
+            });
+          }
+        }
+
+        // Remove CTA if toggle is OFF
+        if (selectedFormat === "carousel" && !includeCta) {
+          newSlides = newSlides.filter(s => s.role !== "cta");
+        }
+
         setSlides(newSlides);
         setCurrentSlide(0);
       }
@@ -314,7 +365,7 @@ export default function ManualStudioEditor() {
       toast.success("Texto gerado! Gerando imagens dos slides...");
       setGenerating(false);
 
-      // ══════ STEP 2: Generate slide images (one per call, in parallel) ══════
+      // ══════ STEP 2: Generate slide images ══════
       if (brandId && newSlides.length > 0) {
         setGeneratingImages(true);
         const contentId = `studio-${Date.now()}`;
@@ -322,7 +373,6 @@ export default function ManualStudioEditor() {
         setImageGenProgress(`Gerando imagens 0/${newSlides.length}...`);
 
         try {
-          // Stagger calls: 2 at a time with 1.5s delay between batches
           const batchSize = 2;
           const allResults: { index: number; data: any; error: any }[] = [];
 
@@ -344,7 +394,6 @@ export default function ManualStudioEditor() {
               }).then(result => {
                 completedCount++;
                 setImageGenProgress(`Gerando imagens ${completedCount}/${newSlides.length}...`);
-                // Update preview immediately as each image arrives
                 if (result.data?.imageUrl) {
                   setSlides(prev => prev.map((sl, idx) =>
                     idx === i ? { ...sl, previewImage: result.data.imageUrl } : sl
@@ -359,7 +408,6 @@ export default function ManualStudioEditor() {
               if (r.status === "fulfilled") allResults.push(r.value);
             }
 
-            // Small delay between batches to avoid rate limits
             if (batch + batchSize < newSlides.length) {
               await new Promise(r => setTimeout(r, 1500));
             }
@@ -475,8 +523,8 @@ export default function ManualStudioEditor() {
   const format = FORMATS.find(f => f.id === selectedFormat)!;
   const dims = format.dims;
   const slide = slides[currentSlide];
-  const showBullets = slide?.role === "insight" || slide?.template === "wave_bullets";
-  const slideTemplate = selectedBrand === "free" ? "generic_free" : (slide?.templateHint || slide?.template || "wave_cover");
+  const showBullets = slide?.role === "insight" || slide?.role === "bullets";
+  const slideTemplate = selectedBrand === "free" ? "generic_free" : (slide?.templateHint || slide?.template || "parameterized");
 
   return (
     <div className="space-y-6">
@@ -511,7 +559,9 @@ export default function ManualStudioEditor() {
                   Auto{defaultTsName ? ` — ${defaultTsName}` : " — (sem padrão)"}
                 </SelectItem>
                 {templateSets.map(ts => (
-                  <SelectItem key={ts.id} value={ts.id}>{ts.name}</SelectItem>
+                  <SelectItem key={ts.id} value={ts.id}>
+                    {ts.name}{ts.category_name ? ` (${ts.category_name})` : ""}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -552,7 +602,7 @@ export default function ManualStudioEditor() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border border-border p-4 bg-muted/20">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium">Nº de slides</Label>
+              <Label className="text-xs font-medium">Nº de slides ({effectiveSlideCount})</Label>
               <Select value={slideCountMode} onValueChange={(v) => setSlideCountMode(v as "auto" | "fixed")}>
                 <SelectTrigger className="w-24 h-7 text-xs">
                   <SelectValue />
@@ -818,11 +868,23 @@ export default function ManualStudioEditor() {
                 {slide?.previewImage ? "Regenerar imagem" : "Gerar imagem"}
               </Button>
             )}
-            {resolvedTs && (
-              <Badge className="text-xs px-3 py-1">
-                Estilo aplicado: {resolvedTs.name}
-              </Badge>
-            )}
+
+            {/* Debug info */}
+            <div className="space-y-1">
+              {resolvedTs && (
+                <Badge className="text-xs px-3 py-1">
+                  Estilo: {resolvedTs.name}
+                </Badge>
+              )}
+              {pilarEditorial && (
+                <div className="text-[10px] text-muted-foreground font-mono">
+                  Pilar: {pilarEditorial}
+                </div>
+              )}
+              <div className="text-[10px] text-muted-foreground font-mono">
+                Role: {slide?.role || "?"} | Template: {slide?.template || slide?.templateHint || "?"} | SetId: {resolvedTsId?.substring(0, 8) || "none"}
+              </div>
+            </div>
           </div>
         </div>
       </div>

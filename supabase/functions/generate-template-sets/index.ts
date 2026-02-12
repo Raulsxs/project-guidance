@@ -80,11 +80,15 @@ serve(async (req) => {
     // ══════ PER-CATEGORY MODE ══════
     if (categoriesToProcess.length > 0) {
       const insertedSets: any[] = [];
+      const skippedCategories: string[] = [];
 
       for (const cat of categoriesToProcess) {
         const catExamples = allExamples.filter((ex: any) => ex.category_id === cat.id);
-        if (catExamples.length === 0) {
-          console.log(`[generate-template-sets] Skipping category "${cat.name}" — no examples`);
+        
+        // Minimum 2 examples required per pillar
+        if (catExamples.length < 2) {
+          console.log(`[generate-template-sets] Skipping "${cat.name}" — only ${catExamples.length} examples (min 2)`);
+          skippedCategories.push(cat.name);
           continue;
         }
 
@@ -116,10 +120,14 @@ serve(async (req) => {
             visual_signature: result.visual_signature || null,
             template_set: {
               id_hint: result.id_hint,
+              pilar_editorial: cat.name,
+              templates_by_role: result.templates_by_role || {},
+              rules: result.rules || {},
               formats: result.formats,
               notes: result.notes || [],
               visual_signature: result.visual_signature || null,
               layout_params: result.layout_params || null,
+              format_support: result.format_support || { carousel: true, post: true, story: true },
             },
           })
           .select()
@@ -130,7 +138,7 @@ serve(async (req) => {
           continue;
         }
         insertedSets.push(inserted);
-        console.log(`[generate-template-sets] Created set "${cat.name}" with layout_params keys: ${JSON.stringify(Object.keys(result.layout_params || {}))}`);
+        console.log(`[generate-template-sets] Created set "${cat.name}" with templates_by_role: ${JSON.stringify(result.templates_by_role)}`);
       }
 
       // Update brand metadata
@@ -160,6 +168,7 @@ serve(async (req) => {
         success: true,
         count: insertedSets.length,
         templateSets: insertedSets,
+        skippedCategories,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -193,10 +202,14 @@ serve(async (req) => {
         visual_signature: result.visual_signature || null,
         template_set: {
           id_hint: result.id_hint,
+          pilar_editorial: brand.name,
+          templates_by_role: result.templates_by_role || {},
+          rules: result.rules || {},
           formats: result.formats,
           notes: result.notes || [],
           visual_signature: result.visual_signature || null,
           layout_params: result.layout_params || null,
+          format_support: result.format_support || { carousel: true, post: true, story: true },
         },
       })
       .select()
@@ -263,7 +276,6 @@ async function generateTemplateSetMultimodal(params: GenerateParams) {
 
   console.log(`[generate-template-sets] MULTIMODAL analysis for "${cat.name}" with ${examples.length} images...`);
 
-  // Build multimodal message: text prompt + reference images
   const contentParts: any[] = [
     {
       type: "text",
@@ -313,7 +325,7 @@ async function generateTemplateSetMultimodal(params: GenerateParams) {
 
   try {
     const parsed = JSON.parse(jsonMatch[0]);
-    console.log(`[generate-template-sets] Parsed for "${cat.name}": layout_params keys=${JSON.stringify(Object.keys(parsed.layout_params || {}))}, visual_signature=${JSON.stringify(parsed.visual_signature)}`);
+    console.log(`[generate-template-sets] Parsed for "${cat.name}": templates_by_role=${JSON.stringify(parsed.templates_by_role)}, rules=${JSON.stringify(parsed.rules)}`);
     return parsed;
   } catch (e) {
     console.error(`[generate-template-sets] Parse error for "${cat.name}":`, e);
@@ -322,6 +334,14 @@ async function generateTemplateSetMultimodal(params: GenerateParams) {
 }
 
 function buildMultimodalPrompt(brand: any, cat: any, examples: any[], paletteStr: string): string {
+  // Create a UNIQUE prefix from the category name for template IDs
+  const prefix = cat.name
+    .toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+
   // Group examples by subtype/role
   const byRole: Record<string, any[]> = {};
   examples.forEach((ex: any) => {
@@ -336,18 +356,7 @@ function buildMultimodalPrompt(brand: any, cat: any, examples: any[], paletteStr
 
   const rolesSummary = Object.entries(byRole).map(([role, exs]) => `  - ${role}: ${exs.length} image(s)`).join("\n");
 
-  return `You are an expert visual design reverse-engineer. You must analyze the PROVIDED IMAGES and extract the EXACT visual layout structure you see.
-
-Your output will be used by a programmatic renderer that supports these visual features:
-- Background: solid color, linear gradient (any angle), or photo with color overlay
-- Decorative shapes: SVG wave curves, diagonal clip cuts, horizontal divider bars
-- Content cards: floating rounded/sharp rectangles with optional shadow, positioned center/bottom/top
-- Text: any alignment (left/center/right), any vertical position (top/center/bottom), with configurable size/weight/case
-- Decorative elements: accent bars (horizontal lines above/below headlines), corner accents (gradient triangles), borders, inner frames
-- Logo: any position (top-left, top-center, top-right, bottom-left, bottom-center, bottom-right)
-- Bullets: numbered circles, checkmarks, dashes, with optional container card
-- Device mockups: phone frame overlaying the background (for showcasing app screens, articles, etc.)
-- Multiple text boxes: separate floating cards for headline and body content
+  return `You are an expert visual design reverse-engineer. Analyze the PROVIDED IMAGES and extract the EXACT visual layout structure.
 
 BRAND CONTEXT:
 - Name: ${brand.name}
@@ -357,8 +366,9 @@ BRAND CONTEXT:
 ${brand.do_rules ? `- Design rules (DO): ${brand.do_rules}` : ""}
 ${brand.dont_rules ? `- Design rules (DON'T): ${brand.dont_rules}` : ""}
 
-CATEGORY: "${cat.name}"
+CATEGORY (Pilar Editorial): "${cat.name}"
 ${cat.description ? `Description: ${cat.description}` : ""}
+Template ID prefix for this pillar: "${prefix}"
 
 IMAGES BY ROLE:
 ${rolesSummary}
@@ -367,47 +377,70 @@ DETAILED METADATA:
 ${exampleMeta}
 
 ═══════════════════════════════════════
-ANALYSIS INSTRUCTIONS - DO THIS STEP BY STEP:
+CRITICAL: UNIQUE TEMPLATE IDS PER PILLAR
 ═══════════════════════════════════════
 
-STEP 1: For EACH image, write down (mentally) what you see — BE EXTREMELY PRECISE:
-- What is the dominant background? A dark solid color? A photo with overlay? A light gradient?
-- Is there a card/box containing text? What shape? Rounded corners or sharp? Floating in center or anchored to bottom?
-- Are there MULTIPLE separate cards/boxes? (e.g., one for headline at top, one for body at bottom)
-- Is there a DEVICE MOCKUP (phone/tablet frame) showing content (like an article, app screenshot, etc.)? Where is it positioned? What percentage of the canvas does it occupy?
-- Where is text positioned? Top-left? Center? Bottom-center?
-- Is the headline UPPERCASE or mixed case? Bold or thin? What approximate font size relative to canvas width?
-- Is there a wave/curve shape? At top or bottom? What percentage of the canvas height?
-- Is there a diagonal cut or angular shape instead of a wave?
-- Are there decorative elements? Accent lines? Corner shapes? Borders? Inner frames (a rectangle border inset from the edges)?
-- Where is the logo? What size relative to the canvas?
-- What specific hex colors do you see for: background, text, accent elements, cards? Match them to the brand palette.
-- Is there any OVERLAY text on top of an image or mockup?
-- Are there any visual separators between sections (lines, dots, icons)?
-- Is there a semi-transparent overlay/gradient over part of the canvas?
+You MUST generate template IDs that are UNIQUE to this pillar.
+Use the prefix "${prefix}" for ALL template IDs.
 
-STEP 2: Map each image to a ROLE: "cover", "content", "bullets", "cta"
-
-STEP 3: For each role, create precise layout_params based on WHAT YOU ACTUALLY SEE.
+Example for pillar "Caso Clínico": CASO_CLINICO_COVER_V1, CASO_CLINICO_CONTENT_V1, etc.
+Example for pillar "Artigos Editoriais": ARTIGOS_EDITORIAIS_COVER_V1, ARTIGOS_EDITORIAIS_CONTENT_V1, etc.
 
 ═══════════════════════════════════════
-OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation):
+ANALYSIS INSTRUCTIONS:
+═══════════════════════════════════════
+
+For EACH image, analyze:
+- Background: solid, gradient, or photo with overlay?
+- Cards/boxes containing text? Shape, position, style?
+- Wave curves, diagonal cuts, or clean backgrounds?
+- Device mockups (phone/tablet)?
+- Text positioning, sizing, weight, case
+- Decorative elements: accent bars, borders, inner frames
+- Logo position
+- Color usage from the brand palette
+
+Then create a complete template set for this pillar.
+
+═══════════════════════════════════════
+OUTPUT FORMAT - Return ONLY this JSON:
 ═══════════════════════════════════════
 
 {
   "name": "${cat.name}",
   "description": "one sentence describing this visual style",
-  "id_hint": "snake_case_id",
+  "id_hint": "${prefix.toLowerCase()}_v1",
   "source_example_ids": [],
+  "templates_by_role": {
+    "cover": "${prefix}_COVER_V1",
+    "context": "${prefix}_CONTENT_V1",
+    "content": "${prefix}_CONTENT_V1",
+    "insight": "${prefix}_BULLETS_V1",
+    "bullets": "${prefix}_BULLETS_V1",
+    "quote": "${prefix}_QUOTE_V1",
+    "question": "${prefix}_QUESTION_V1",
+    "closing": "${prefix}_CTA_V1",
+    "cta": "${prefix}_CTA_V1"
+  },
+  "rules": {
+    "uppercase_headlines": true/false,
+    "body_in_card": true/false,
+    "waves": true/false,
+    "diagonal_cut": true/false,
+    "phone_mockup": true/false,
+    "inner_frame": true/false,
+    "cta_default_enabled": true
+  },
+  "format_support": { "carousel": true, "post": true, "story": true },
   "visual_signature": {
-    "theme_variant": "DESCRIBE: e.g. dark_navy_gradient, light_clinical_cards, warm_earth_editorial",
+    "theme_variant": "DESCRIBE: e.g. dark_navy_gradient, light_clinical_cards",
     "primary_bg_mode": "solid | gradient | photo_overlay",
-    "card_style": "none | rounded_floating | sharp_bottom | full_width_strip | rounded_bottom | multi_card",
-    "decorative_shape": "wave_bottom | wave_top | diagonal_cut | none | horizontal_bar",
+    "card_style": "none | rounded_floating | sharp_bottom | full_width_strip",
+    "decorative_shape": "wave_bottom | wave_top | diagonal_cut | none",
     "accent_usage": "minimal | moderate | strong",
-    "text_on_dark_bg": true,
-    "has_device_mockup": false,
-    "has_inner_frame": false
+    "text_on_dark_bg": true/false,
+    "has_device_mockup": true/false,
+    "has_inner_frame": true/false
   },
   "layout_params": {
     "cover": {
@@ -433,7 +466,7 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
         "shadow": "none | soft | strong",
         "padding": 48,
         "width_pct": 85,
-        "border": "none | 1px solid #hex"
+        "border": "none"
       },
       "secondary_card": {
         "enabled": false,
@@ -473,20 +506,20 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
         "max_width_pct": 90
       },
       "decorations": {
-        "accent_bar": { "enabled": true, "position": "above_headline | below_headline | above_body", "width": 60, "height": 6, "color": "#hex" },
+        "accent_bar": { "enabled": true, "position": "above_headline", "width": 60, "height": 6, "color": "#hex" },
         "corner_accents": { "enabled": false, "color": "#hex", "size": 120 },
         "border": { "enabled": false, "color": "#hex", "width": 2, "radius": 0, "inset": 20 },
         "divider_line": { "enabled": false, "color": "#hex", "width": "60%", "position": "between_headline_body" },
         "inner_frame": { "enabled": false, "color": "#hex", "width": 2, "inset": 30, "radius": 0 }
       },
-      "logo": { "position": "bottom-center | top-left | top-right | bottom-right", "opacity": 1, "size": 48, "bg_circle": false },
+      "logo": { "position": "bottom-center", "opacity": 1, "size": 48, "bg_circle": false },
       "padding": { "x": 70, "y": 80 }
     },
-    "content": { "...same structure as cover..." },
+    "content": { "...SAME FULL STRUCTURE as cover but with values matching content slides..." },
     "bullets": {
-      "...same structure as cover plus...",
+      "...SAME FULL STRUCTURE as cover plus...",
       "bullet_style": {
-        "type": "numbered_circle | checkmark | dash | arrow | custom_icon",
+        "type": "numbered_circle | checkmark | dash | arrow",
         "accent_color": "#hex",
         "number_bg_color": "#hex",
         "number_text_color": "#ffffff",
@@ -495,10 +528,10 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
       }
     },
     "cta": {
-      "...same structure as cover plus...",
+      "...SAME FULL STRUCTURE as cover plus...",
       "cta_icons": {
         "enabled": true,
-        "style": "emoji | minimal_outline | filled_circle",
+        "style": "emoji",
         "items": [
           { "icon": "❤️", "label": "Curta" },
           { "icon": "💬", "label": "Comente" },
@@ -514,6 +547,7 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
     "carousel": {
       "slide_count_range": [4, 9],
       "cta_policy": "optional",
+      "slide_roles": ["cover", "context", "insight", "bullets", "cta"],
       "text_limits": { "headline_chars": [35, 60], "body_chars": [140, 260], "bullets_max": 5 }
     },
     "post": { "text_limits": { "headline_chars": [35, 60], "body_chars": [140, 260] } },
@@ -526,29 +560,20 @@ OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation
 CRITICAL RULES:
 ═══════════════════════════════════════
 
-1. LOOK AT THE ACTUAL IMAGES. Do not guess or use defaults. Every value must come from what you SEE.
+1. LOOK AT THE ACTUAL IMAGES. Every value must come from what you SEE.
 
-2. COLORS: Use the EXACT hex colors from the brand palette (${paletteStr}). 
-   - bg.colors[0] = the dominant background color you see
-   - bg.colors[1] = secondary gradient color (if gradient) or same as [0] for solid
-   - text.headline_color and text.body_color = the ACTUAL text colors visible in the images
-   - card.bg_color = the EXACT background color of text boxes (often white #FFFFFF)
+2. COLORS: Use EXACT hex colors from the brand palette (${paletteStr}).
 
-3. STRUCTURE: Each role MUST have DIFFERENT structural characteristics if the reference images show different layouts.
+3. templates_by_role MUST use the prefix "${prefix}" — IDs must be UNIQUE to this pillar.
 
-4. SHAPES: Only set shape.type="wave" if you ACTUALLY SEE a curved/wave shape. If you see a diagonal cut, use "diagonal". If the background is plain, use "none".
+4. rules object must accurately reflect what you see:
+   - waves=true ONLY if you see wave curves
+   - phone_mockup=true ONLY if you see device mockups
+   - body_in_card=true ONLY if body text sits inside a card
 
-5. CARDS: Only set card.enabled=true if you see a visible rectangular container around the text. If text sits directly on the background, card.enabled=false.
+5. Each layout_params role (cover, content, bullets, cta) MUST have the FULL structure. Do NOT abbreviate.
 
-6. DEVICE MOCKUPS: If you see a phone/tablet frame showing content (article, app screen, etc.), set device_mockup.enabled=true. This is a common pattern in healthcare/tech content marketing. The mockup is rendered as a visible frame with rounded corners, optional notch, and shadow.
+6. The "name" MUST be exactly "${cat.name}".
 
-7. SECONDARY CARDS: If you see MULTIPLE separate text boxes, use secondary_card to describe the additional card.
-
-8. INNER FRAME: If you see a decorative border/frame set INWARD from the canvas edges, set decorations.inner_frame.enabled=true.
-
-9. TEXT SHADOW: If text is on a photo or dark gradient, set text_shadow="subtle" or "strong" for readability.
-
-10. The "name" MUST be exactly "${cat.name}".
-
-11. Every layout_params role (cover, content, bullets, cta) MUST have the FULL structure shown above. Do NOT abbreviate with "...same structure...". Write out every field completely.`;
+7. slide_count_range should reflect the typical number of slides you see in the examples for this pillar.`;
 }

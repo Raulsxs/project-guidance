@@ -340,34 +340,40 @@ function buildImagePromptForSlide(basePrompt: string, tokens: BrandTokens | null
   ].join(" ");
 }
 
-// ══════ DERIVE TEMPLATES BY ROLE FROM VISUAL SIGNATURE ══════
+// ══════ DERIVE TEMPLATES BY ROLE ══════
 
-function deriveTemplatesByRoleFromSignature(visualSignature: any): Record<string, string> {
-  const tv = visualSignature?.theme_variant || "";
+function deriveTemplatesByRole(templateSet: any): Record<string, string> {
+  // 1. Use templates_by_role directly if present (new system)
+  if (templateSet?.templates_by_role) {
+    return templateSet.templates_by_role;
+  }
+  
+  // 2. Derive from visual_signature as fallback
+  const visualSig = templateSet?.visual_signature;
+  const tv = visualSig?.theme_variant || "";
   
   if (tv.includes("editorial") || tv.includes("dark")) {
     return {
-      cover: "editorial_cover",
-      context: "editorial_text",
-      content: "editorial_text",
-      insight: "editorial_bullets",
-      bullets: "editorial_bullets",
-      quote: "editorial_quote",
-      question: "editorial_question",
-      closing: "editorial_cta",
-      cta: "editorial_cta",
+      cover: "parameterized", context: "parameterized", content: "parameterized",
+      insight: "parameterized", bullets: "parameterized", quote: "parameterized",
+      question: "parameterized", closing: "parameterized", cta: "parameterized",
     };
   }
+  
+  // 3. If layout_params exist, use parameterized
+  if (templateSet?.layout_params) {
+    return {
+      cover: "parameterized", context: "parameterized", content: "parameterized",
+      insight: "parameterized", bullets: "parameterized", quote: "parameterized",
+      question: "parameterized", closing: "parameterized", cta: "parameterized",
+    };
+  }
+  
+  // 4. Legacy wave fallback
   return {
-    cover: "wave_cover",
-    context: "wave_text_card",
-    content: "wave_text_card",
-    insight: "wave_bullets",
-    bullets: "wave_bullets",
-    quote: "wave_text_card",
-    question: "wave_text_card",
-    closing: "wave_closing",
-    cta: "wave_closing",
+    cover: "wave_cover", context: "wave_text_card", content: "wave_text_card",
+    insight: "wave_bullets", bullets: "wave_bullets", quote: "wave_text_card",
+    question: "wave_text_card", closing: "wave_closing", cta: "wave_closing",
   };
 }
 
@@ -487,7 +493,7 @@ serve(async (req) => {
               // CRITICAL: include layout_params for parameterized rendering
               layout_params: ts.layout_params || null,
               // CRITICAL: include templates_by_role so post-processing uses correct IDs
-              templates_by_role: ts.templates_by_role || deriveTemplatesByRoleFromSignature(visualSig),
+              templates_by_role: ts.templates_by_role || deriveTemplatesByRole(ts),
             } as any;
 
             console.log(`[generate-content] template_set_resolved=${tsId} name="${templateSetName}" source=${templateSetId ? 'selected' : 'default'} visual_signature=${JSON.stringify(visualSig)}`);
@@ -599,7 +605,7 @@ ${brandContext}`;
     const roleToTemplate = templatesByRole || (formatConfig as any)?.role_to_template as Record<string, string> | undefined;
     
     // If neither exists, derive from visual_signature
-    const effectiveRoleToTemplate = roleToTemplate || deriveTemplatesByRoleFromSignature((activeStyleGuide as any)?.visual_signature);
+    const effectiveRoleToTemplate = roleToTemplate || deriveTemplatesByRole((activeStyleGuide as any));
     
     const templateAssignments = contentType === "carousel"
       ? slideRoles.map((role, i) => {
