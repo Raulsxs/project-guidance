@@ -39,6 +39,7 @@ interface TemplateSetOption {
   description: string | null;
   template_set: any;
   category_name: string | null;
+  category_id: string | null;
 }
 
 interface SlideData {
@@ -160,7 +161,7 @@ export default function ManualStudioEditor() {
       const load = async () => {
         const { data } = await supabase
           .from("brand_template_sets")
-          .select("id, name, description, template_set, category_name")
+          .select("id, name, description, template_set, category_name, category_id")
           .eq("brand_id", selectedBrand)
           .eq("status", "active")
           .order("created_at");
@@ -390,6 +391,8 @@ export default function ManualStudioEditor() {
                   articleUrl: notes || undefined,
                   articleContent: "",
                   contentId,
+                  templateSetId: resolvedTsId || undefined,
+                  categoryId: resolvedTs?.category_id || undefined,
                 },
               }).then(result => {
                 completedCount++;
@@ -451,6 +454,7 @@ export default function ManualStudioEditor() {
           contentFormat: selectedFormat,
           articleUrl: notes || undefined,
           contentId: `studio-regen-${Date.now()}`,
+          templateSetId: resolvedTsId || undefined,
         },
       });
 

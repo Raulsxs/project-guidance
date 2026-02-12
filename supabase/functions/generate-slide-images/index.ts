@@ -33,38 +33,109 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const { brandId, slide, slideIndex, totalSlides, contentFormat, articleUrl, articleContent, contentId } = await req.json();
+    const {
+      brandId, slide, slideIndex, totalSlides, contentFormat,
+      articleUrl, articleContent, contentId,
+      templateSetId, categoryId,
+    } = await req.json();
 
     if (!slide) throw new Error("slide object is required");
     if (!brandId) throw new Error("brandId is required");
 
-    // ══════ LOAD BRAND + REFERENCE IMAGES (filtered by content format) ══════
+    // ══════ LOAD BRAND ══════
+    const { data: brandInfo } = await supabase
+      .from("brands")
+      .select("name, palette, fonts, visual_tone, do_rules, dont_rules, logo_url")
+      .eq("id", brandId)
+      .single();
+
+    // ══════ LOAD TEMPLATE SET (for style_guide and category filtering) ══════
+    let templateSetData: any = null;
+    let resolvedCategoryId: string | null = categoryId || null;
+    let templateSetName: string | null = null;
+
+    if (templateSetId) {
+      const { data: tsData } = await supabase
+        .from("brand_template_sets")
+        .select("id, name, category_id, category_name, template_set, visual_signature")
+        .eq("id", templateSetId)
+        .single();
+
+      if (tsData) {
+        templateSetData = tsData;
+        templateSetName = tsData.name;
+        if (!resolvedCategoryId && tsData.category_id) {
+          resolvedCategoryId = tsData.category_id;
+        }
+      }
+    }
+
+    // ══════ LOAD REFERENCE IMAGES (filtered by category/pilar) ══════
     const contentTypeFilter = contentFormat === "carousel" ? "carrossel"
       : contentFormat === "story" ? "story"
       : "post";
 
-    const [brandResult, examplesResult] = await Promise.all([
-      supabase
-        .from("brands")
-        .select("name, palette, fonts, visual_tone, do_rules, dont_rules, logo_url")
-        .eq("id", brandId)
-        .single(),
-      supabase
+    let referenceImageUrls: string[] = [];
+    let referenceExampleIds: string[] = [];
+    let fallbackLevel = 0;
+
+    // Level 0: category_id + content type
+    if (resolvedCategoryId) {
+      const { data: catExamples } = await supabase
         .from("brand_examples")
-        .select("image_url, type, subtype, carousel_group_id, slide_index")
+        .select("id, image_url")
         .eq("brand_id", brandId)
-        .in("type", [contentTypeFilter, "carrossel"]) // always include carousel refs
-        .order("carousel_group_id", { ascending: true, nullsFirst: false })
-        .order("slide_index", { ascending: true })
-        .limit(12),
-    ]);
+        .eq("category_id", resolvedCategoryId)
+        .in("type", [contentTypeFilter, "carrossel"])
+        .order("created_at", { ascending: false })
+        .limit(12);
 
-    const brandInfo = brandResult.data;
-    const referenceImageUrls = (examplesResult.data || [])
-      .map((e: any) => e.image_url)
-      .filter(Boolean);
+      if (catExamples && catExamples.length >= 3) {
+        referenceImageUrls = catExamples.map((e: any) => e.image_url).filter(Boolean);
+        referenceExampleIds = catExamples.map((e: any) => e.id);
+        fallbackLevel = 0;
+      } else {
+        // Level 1: category_id only (any content type)
+        const { data: catAllExamples } = await supabase
+          .from("brand_examples")
+          .select("id, image_url")
+          .eq("brand_id", brandId)
+          .eq("category_id", resolvedCategoryId)
+          .order("created_at", { ascending: false })
+          .limit(12);
 
-    console.log(`[generate-slide-images] Slide ${(slideIndex || 0) + 1}/${totalSlides || "?"}, ${referenceImageUrls.length} refs (filter: ${contentTypeFilter})`);
+        if (catAllExamples && catAllExamples.length >= 3) {
+          referenceImageUrls = catAllExamples.map((e: any) => e.image_url).filter(Boolean);
+          referenceExampleIds = catAllExamples.map((e: any) => e.id);
+          fallbackLevel = 1;
+        }
+      }
+    }
+
+    // Level 2: brand + content type (last resort)
+    if (referenceImageUrls.length < 3) {
+      const { data: brandExamples } = await supabase
+        .from("brand_examples")
+        .select("id, image_url")
+        .eq("brand_id", brandId)
+        .in("type", [contentTypeFilter, "carrossel"])
+        .order("created_at", { ascending: false })
+        .limit(12);
+
+      if (brandExamples && brandExamples.length > 0) {
+        referenceImageUrls = brandExamples.map((e: any) => e.image_url).filter(Boolean);
+        referenceExampleIds = brandExamples.map((e: any) => e.id);
+        fallbackLevel = 2;
+      }
+    }
+
+    const fallbackLabels = ["exact_category", "category_any_type", "brand_wide"];
+    console.log(`[generate-slide-images] Slide ${(slideIndex || 0) + 1}/${totalSlides || "?"}, refs=${referenceImageUrls.length}, fallback=${fallbackLabels[fallbackLevel]}, templateSet="${templateSetName || 'none'}", categoryId=${resolvedCategoryId || 'none'}`);
+
+    // ══════ EXTRACT STYLE GUIDE FROM TEMPLATE SET ══════
+    const styleGuide = templateSetData?.template_set?.layout_params || null;
+    const rules = templateSetData?.template_set?.rules || null;
+    const visualSignature = templateSetData?.visual_signature || templateSetData?.template_set?.visual_signature || null;
 
     // ══════ BUILD MULTIMODAL REQUEST ══════
     const contentParts: any[] = [];
@@ -78,7 +149,11 @@ serve(async (req) => {
     }
 
     // Build prompt
-    const prompt = buildPrompt(slide, slideIndex || 0, totalSlides || 1, brandInfo, articleUrl, articleContent, contentFormat);
+    const prompt = buildPrompt(
+      slide, slideIndex || 0, totalSlides || 1,
+      brandInfo, articleUrl, articleContent, contentFormat,
+      rules, visualSignature, templateSetName,
+    );
     contentParts.push({ type: "text", text: prompt });
 
     // Retry logic for transient errors (502, 503, 429)
@@ -116,7 +191,10 @@ serve(async (req) => {
         const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
 
         if (!base64Image) {
-          return new Response(JSON.stringify({ success: true, imageUrl: null }), {
+          return new Response(JSON.stringify({
+            success: true, imageUrl: null,
+            debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel] },
+          }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -124,7 +202,10 @@ serve(async (req) => {
         const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
         console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded`);
 
-        return new Response(JSON.stringify({ success: true, imageUrl }), {
+        return new Response(JSON.stringify({
+          success: true, imageUrl,
+          debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel] },
+        }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -132,7 +213,6 @@ serve(async (req) => {
       const status = response.status;
       if (status === 402) throw new Error("Insufficient credits.");
       
-      // Retryable errors
       if (status === 429 || status === 502 || status === 503) {
         const errText = await response.text();
         console.warn(`[generate-slide-images] Retryable error ${status} on attempt ${attempt + 1}`);
@@ -140,7 +220,6 @@ serve(async (req) => {
         continue;
       }
 
-      // Non-retryable
       const errText = await response.text();
       console.error(`[generate-slide-images] Non-retryable error ${status}:`, errText.substring(0, 200));
       throw new Error(`AI image error: ${status}`);
@@ -168,12 +247,14 @@ function buildPrompt(
   articleUrl?: string,
   articleContent?: string,
   contentFormat?: string,
+  rules?: any,
+  visualSignature?: any,
+  templateSetName?: string | null,
 ): string {
   const headline = slide.headline || "";
   const body = slide.body || "";
   const bullets = slide.bullets || [];
 
-  // Build slide text content
   const textParts: string[] = [];
   if (headline) textParts.push(headline);
   if (body) textParts.push(body);
@@ -183,14 +264,39 @@ function buildPrompt(
   const articleRef = articleUrl ? `\nArtigo fonte: ${articleUrl}` : "";
   const articleSnippet = articleContent ? `\n${articleContent.substring(0, 600)}` : "";
 
-  // Simple, direct prompt — just like what works when talking to Gemini directly
+  // Build style constraints from rules/visual_signature
+  let styleConstraints = "";
+  if (rules || visualSignature) {
+    const parts: string[] = [];
+    if (rules?.waves === false) parts.push("NÃO use ondas/curvas no design.");
+    if (rules?.waves === true) parts.push("Inclua curva ondulada decorativa.");
+    if (rules?.phone_mockup === true) parts.push("Inclua mockup de celular quando aplicável.");
+    if (rules?.phone_mockup === false) parts.push("NÃO use mockup de celular.");
+    if (rules?.body_in_card === true) parts.push("O texto principal deve estar dentro de um card/caixa.");
+    if (rules?.body_in_card === false) parts.push("Texto direto sobre o fundo, SEM card.");
+    if (rules?.inner_frame === true) parts.push("Use moldura interna decorativa.");
+    if (rules?.uppercase_headlines === true) parts.push("Headlines em CAIXA ALTA.");
+    if (visualSignature?.primary_bg_mode) parts.push(`Fundo: ${visualSignature.primary_bg_mode}.`);
+    if (visualSignature?.card_style && visualSignature.card_style !== "none") parts.push(`Estilo de card: ${visualSignature.card_style}.`);
+    if (visualSignature?.decorative_shape && visualSignature.decorative_shape !== "none") parts.push(`Forma decorativa: ${visualSignature.decorative_shape}.`);
+    styleConstraints = parts.length > 0 ? `\n\nREGRAS DE ESTILO (obrigatórias):\n${parts.join("\n")}` : "";
+  }
+
+  const pilarLabel = templateSetName ? `\nEstilo/Pilar: "${templateSetName}"` : "";
+
   return `Crie o slide ${slideIndex + 1} de ${totalSlides} de um carrossel de Instagram sobre este conteúdo, seguindo EXATAMENTE o mesmo estilo visual das imagens de referência anexadas.
 
-Texto do slide:
+Texto do slide (em PT-BR, escreva exatamente como está):
 ${slideText}
 ${articleRef}${articleSnippet}
+${pilarLabel}${styleConstraints}
 
-Use o mesmo layout, cores, tipografia, elementos decorativos e estilo das imagens de referência. O slide deve ter formato portrait (4:5, 1080x1350px).`;
+REGRAS OBRIGATÓRIAS:
+- Replique EXATAMENTE o estilo, layout, cores, tipografia e elementos das referências.
+- O texto DEVE estar em português do Brasil, correto e natural. NÃO traduza para inglês.
+- Respeite a "safe area": não corte texto nas bordas. Margem mínima de 60px.
+- O slide deve ter formato portrait (4:5, 1080x1350px).
+- Use APENAS referências do mesmo estilo visual — não misture com outros estilos.`;
 }
 
 // ══════ STORAGE UPLOAD ══════
