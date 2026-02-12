@@ -130,7 +130,7 @@ serve(async (req) => {
           continue;
         }
         insertedSets.push(inserted);
-        console.log(`[generate-template-sets] Created set "${cat.name}" with layout_params: ${!!result.layout_params}`);
+        console.log(`[generate-template-sets] Created set "${cat.name}" with layout_params keys: ${JSON.stringify(Object.keys(result.layout_params || {}))}`);
       }
 
       // Update brand metadata
@@ -313,7 +313,7 @@ async function generateTemplateSetMultimodal(params: GenerateParams) {
 
   try {
     const parsed = JSON.parse(jsonMatch[0]);
-    console.log(`[generate-template-sets] Parsed layout_params for "${cat.name}": ${JSON.stringify(Object.keys(parsed.layout_params || {}))}`);
+    console.log(`[generate-template-sets] Parsed for "${cat.name}": layout_params keys=${JSON.stringify(Object.keys(parsed.layout_params || {}))}, visual_signature=${JSON.stringify(parsed.visual_signature)}`);
     return parsed;
   } catch (e) {
     console.error(`[generate-template-sets] Parse error for "${cat.name}":`, e);
@@ -322,171 +322,164 @@ async function generateTemplateSetMultimodal(params: GenerateParams) {
 }
 
 function buildMultimodalPrompt(brand: any, cat: any, examples: any[], paletteStr: string): string {
+  // Group examples by subtype/role
+  const byRole: Record<string, any[]> = {};
+  examples.forEach((ex: any) => {
+    const role = ex.subtype || ex.type || "unknown";
+    if (!byRole[role]) byRole[role] = [];
+    byRole[role].push(ex);
+  });
+
   const exampleMeta = examples.map((ex: any, i: number) =>
-    `Image ${i + 1}: type=${ex.type}${ex.subtype ? '/' + ex.subtype : ''}, description="${ex.description || 'none'}"`
+    `Image ${i + 1}: role="${ex.subtype || 'general'}", type=${ex.type}, description="${ex.description || 'none'}"`
   ).join("\n");
 
-  return `You are a senior visual design analyst. You are analyzing REAL reference images from a brand's content library.
-Your job is to extract PRECISE layout parameters from what you SEE in the images, so a renderer can faithfully reproduce the same visual structure.
+  const rolesSummary = Object.entries(byRole).map(([role, exs]) => `  - ${role}: ${exs.length} image(s)`).join("\n");
 
-BRAND: ${brand.name}
-PALETTE: ${paletteStr}
-FONTS: ${JSON.stringify(brand.fonts)}
-VISUAL TONE: ${brand.visual_tone || "clean"}
-${brand.do_rules ? `POSITIVE RULES: ${brand.do_rules}` : ""}
-${brand.dont_rules ? `NEGATIVE RULES: ${brand.dont_rules}` : ""}
+  return `You are an expert visual design reverse-engineer. You must analyze the PROVIDED IMAGES and extract the EXACT visual layout structure you see.
+
+Your output will be used by a programmatic renderer that supports these visual features:
+- Background: solid color, linear gradient (any angle), or photo with color overlay
+- Decorative shapes: SVG wave curves, diagonal clip cuts, horizontal divider bars
+- Content cards: floating rounded/sharp rectangles with optional shadow, positioned center/bottom/top
+- Text: any alignment (left/center/right), any vertical position (top/center/bottom), with configurable size/weight/case
+- Decorative elements: accent bars (horizontal lines above/below headlines), corner accents (gradient triangles), borders
+- Logo: any position (top-left, top-center, top-right, bottom-left, bottom-center, bottom-right)
+- Bullets: numbered circles, checkmarks, dashes, with optional container card
+
+BRAND CONTEXT:
+- Name: ${brand.name}
+- Palette (hex): ${paletteStr}
+- Fonts: headings="${(brand.fonts as any)?.headings || 'Inter'}", body="${(brand.fonts as any)?.body || 'Inter'}"
+- Visual tone: ${brand.visual_tone || "clean"}
+${brand.do_rules ? `- Design rules (DO): ${brand.do_rules}` : ""}
+${brand.dont_rules ? `- Design rules (DON'T): ${brand.dont_rules}` : ""}
 
 CATEGORY: "${cat.name}"
 ${cat.description ? `Description: ${cat.description}` : ""}
 
-IMAGES METADATA:
+IMAGES BY ROLE:
+${rolesSummary}
+
+DETAILED METADATA:
 ${exampleMeta}
 
-INSTRUCTIONS:
-1. LOOK CAREFULLY at each image. Identify the visual structure:
-   - Is the background solid color, gradient, or photo?
-   - Are there wave/curve shapes at the top or bottom? What height percentage?
-   - Is there a card/box containing text? What style (rounded, sharp corners)?
-   - Where is the text positioned (top, center, bottom)? Aligned left, center, right?
-   - Is the headline uppercase? Bold weight? What approximate size relative to the canvas?
-   - Is there a logo? Where? What size?
-   - Are there decorative elements (accent bars, corner shapes, borders, icons)?
-   - What's the spacing/padding pattern?
+═══════════════════════════════════════
+ANALYSIS INSTRUCTIONS - DO THIS STEP BY STEP:
+═══════════════════════════════════════
 
-2. Classify each image by its role: cover, content/text, bullets/list, closing/cta
+STEP 1: For EACH image, write down (mentally) what you see:
+- What is the dominant background? A dark solid color? A photo with overlay? A light gradient?
+- Is there a card/box containing text? What shape? Rounded corners or sharp? Floating in center or anchored to bottom?
+- Where is text positioned? Top-left? Center? Bottom-center?
+- Is the headline UPPERCASE or mixed case? Bold or thin? What approximate font size relative to canvas width?
+- Is there a wave/curve shape? At top or bottom? What percentage of the canvas height?
+- Is there a diagonal cut or angular shape instead of a wave?
+- Are there decorative elements? Accent lines? Corner shapes? Borders?
+- Where is the logo? What size relative to the canvas?
+- What specific hex colors do you see for: background, text, accent elements? Match them to the brand palette.
 
-3. For EACH role you identify, extract layout_params
+STEP 2: Map each image to a ROLE: "cover", "content", "bullets", "cta"
+- cover = first slide, usually has the main title
+- content = text-heavy informational slides
+- bullets = slides with lists/steps
+- cta = last slide with call-to-action
 
-Return ONLY valid JSON (no markdown, no backticks):
+STEP 3: For each role, create precise layout_params based on WHAT YOU ACTUALLY SEE.
+
+═══════════════════════════════════════
+OUTPUT FORMAT - Return ONLY this JSON (no markdown, no backticks, no explanation):
+═══════════════════════════════════════
+
 {
   "name": "${cat.name}",
-  "description": "brief description of when to use this style",
-  "id_hint": "snake_case_identifier",
+  "description": "one sentence describing this visual style",
+  "id_hint": "snake_case_id",
   "source_example_ids": [],
   "visual_signature": {
-    "theme_variant": "describe the overall theme (e.g., dark_editorial, light_clinical, warm_organic, bold_modern)",
-    "primary_bg_mode": "solid | gradient | image",
-    "card_style": "none | rounded_card | sharp_card | bottom_card",
-    "wave_enabled": true,
-    "accent_usage": "minimal | moderate | strong"
+    "theme_variant": "DESCRIBE: e.g. dark_navy_gradient, light_clinical_cards, warm_earth_editorial",
+    "primary_bg_mode": "solid | gradient | photo_overlay",
+    "card_style": "none | rounded_floating | sharp_bottom | full_width_strip | rounded_bottom",
+    "decorative_shape": "wave_bottom | wave_top | diagonal_cut | none | horizontal_bar",
+    "accent_usage": "minimal | moderate | strong",
+    "text_on_dark_bg": true
   },
   "layout_params": {
     "cover": {
       "bg": {
-        "type": "solid | gradient | image_overlay",
-        "palette_index": 1,
-        "gradient_angle": 135,
-        "overlay_opacity": 0.5
+        "type": "solid | gradient | photo_overlay",
+        "colors": ["#hex1", "#hex2"],
+        "gradient_angle": 180,
+        "overlay_opacity": 0.6
       },
-      "wave": { "enabled": false, "height_pct": 0, "palette_index": 0 },
-      "card": { "enabled": false, "border_radius": 0, "palette_index": 3, "shadow": false, "position": "center" },
+      "shape": {
+        "type": "wave | diagonal | none",
+        "position": "bottom | top",
+        "height_pct": 18,
+        "color": "#hex",
+        "flip": false
+      },
+      "card": {
+        "enabled": false,
+        "style": "rounded | sharp | pill",
+        "position": "center | bottom | top",
+        "bg_color": "#hex",
+        "border_radius": 24,
+        "shadow": "none | soft | strong",
+        "padding": 48,
+        "width_pct": 85,
+        "border": "none | 1px solid #hex"
+      },
       "text": {
-        "alignment": "center",
-        "vertical_position": "center",
+        "alignment": "left | center | right",
+        "vertical_position": "top | center | bottom",
         "headline_size": 62,
         "headline_weight": 900,
         "headline_uppercase": true,
         "headline_letter_spacing": 0.02,
+        "headline_color": "#hex",
         "body_size": 30,
         "body_weight": 400,
         "body_italic": false,
-        "text_color": "#ffffff",
-        "body_color": "#ffffffcc"
+        "body_color": "#hex",
+        "text_shadow": "none | subtle | strong",
+        "max_width_pct": 90
       },
       "decorations": {
-        "accent_bar": { "enabled": true, "position": "above_headline", "width": 60, "height": 6 },
-        "corner_accents": { "enabled": false },
-        "border": { "enabled": false }
+        "accent_bar": { "enabled": true, "position": "above_headline | below_headline | above_body", "width": 60, "height": 6, "color": "#hex" },
+        "corner_accents": { "enabled": false, "color": "#hex", "size": 120 },
+        "border": { "enabled": false, "color": "#hex", "width": 2, "radius": 0, "inset": 20 },
+        "divider_line": { "enabled": false, "color": "#hex", "width": "60%", "position": "between_headline_body" }
       },
-      "logo": { "position": "bottom-center", "opacity": 1, "size": 48 },
+      "logo": { "position": "bottom-center | top-left | top-right | bottom-right", "opacity": 1, "size": 48, "bg_circle": false },
       "padding": { "x": 70, "y": 80 }
     },
-    "content": {
-      "bg": { "type": "solid", "palette_index": 1, "gradient_angle": 0, "overlay_opacity": 0 },
-      "wave": { "enabled": false, "height_pct": 0, "palette_index": 0 },
-      "card": { "enabled": false, "border_radius": 24, "palette_index": 3, "shadow": true, "position": "center" },
-      "text": {
-        "alignment": "center",
-        "vertical_position": "center",
-        "headline_size": 48,
-        "headline_weight": 800,
-        "headline_uppercase": true,
-        "headline_letter_spacing": 0.02,
-        "body_size": 26,
-        "body_weight": 400,
-        "body_italic": false,
-        "text_color": "#ffffff",
-        "body_color": "#ffffffcc"
-      },
-      "decorations": {
-        "accent_bar": { "enabled": true, "position": "above_headline", "width": 48, "height": 4 },
-        "corner_accents": { "enabled": false },
-        "border": { "enabled": false }
-      },
-      "logo": { "position": "bottom-center", "opacity": 0.35, "size": 40 },
-      "padding": { "x": 60, "y": 80 }
-    },
+    "content": { "...same structure as cover..." },
     "bullets": {
-      "bg": { "type": "solid", "palette_index": 1, "gradient_angle": 0, "overlay_opacity": 0 },
-      "wave": { "enabled": false, "height_pct": 0, "palette_index": 0 },
-      "card": { "enabled": false, "border_radius": 16, "palette_index": 3, "shadow": false, "position": "center" },
+      "...same structure as cover plus...",
       "bullet_style": {
-        "type": "numbered_circle | checkmark | dash | icon",
-        "accent_palette_index": 2,
-        "container_enabled": false,
-        "container_palette_index": 3,
-        "container_border_radius": 16
-      },
-      "text": {
-        "alignment": "left",
-        "vertical_position": "center",
-        "headline_size": 46,
-        "headline_weight": 900,
-        "headline_uppercase": true,
-        "headline_letter_spacing": 0.02,
-        "body_size": 24,
-        "body_weight": 500,
-        "body_italic": false,
-        "text_color": "#ffffff",
-        "body_color": "#ffffffcc"
-      },
-      "decorations": {
-        "accent_bar": { "enabled": true, "position": "above_headline", "width": 48, "height": 4 },
-        "corner_accents": { "enabled": false },
-        "border": { "enabled": false }
-      },
-      "logo": { "position": "bottom-center", "opacity": 0.35, "size": 40 },
-      "padding": { "x": 60, "y": 80 }
+        "type": "numbered_circle | checkmark | dash | arrow | custom_icon",
+        "accent_color": "#hex",
+        "number_bg_color": "#hex",
+        "number_text_color": "#ffffff",
+        "size": 36,
+        "container": { "enabled": false, "bg_color": "#hex", "border_radius": 16, "padding": 36 }
+      }
     },
     "cta": {
-      "bg": { "type": "solid", "palette_index": 1, "gradient_angle": 0, "overlay_opacity": 0 },
-      "wave": { "enabled": false, "height_pct": 0, "palette_index": 0 },
-      "card": { "enabled": false, "border_radius": 0, "palette_index": 3, "shadow": false, "position": "center" },
+      "...same structure as cover plus...",
       "cta_icons": {
         "enabled": true,
-        "style": "emoji | minimal | bold",
-        "items": ["like", "send", "save", "comment"]
-      },
-      "text": {
-        "alignment": "center",
-        "vertical_position": "center",
-        "headline_size": 56,
-        "headline_weight": 900,
-        "headline_uppercase": true,
-        "headline_letter_spacing": 0.02,
-        "body_size": 36,
-        "body_weight": 500,
-        "body_italic": false,
-        "text_color": "#ffffff",
-        "body_color": "#ffffffcc"
-      },
-      "decorations": {
-        "accent_bar": { "enabled": true, "position": "above_headline", "width": 60, "height": 6 },
-        "corner_accents": { "enabled": false },
-        "border": { "enabled": false }
-      },
-      "logo": { "position": "bottom-center", "opacity": 1, "size": 48 },
-      "padding": { "x": 60, "y": 60 }
+        "style": "emoji | minimal_outline | filled_circle",
+        "items": [
+          { "icon": "❤️", "label": "Curta" },
+          { "icon": "💬", "label": "Comente" },
+          { "icon": "🔄", "label": "Compartilhe" },
+          { "icon": "📌", "label": "Salve" }
+        ],
+        "icon_size": 48,
+        "label_color": "#hex"
+      }
     }
   },
   "formats": {
@@ -495,24 +488,37 @@ Return ONLY valid JSON (no markdown, no backticks):
       "cta_policy": "optional",
       "text_limits": { "headline_chars": [35, 60], "body_chars": [140, 260], "bullets_max": 5 }
     },
-    "post": {
-      "text_limits": { "headline_chars": [35, 60], "body_chars": [140, 260] }
-    },
-    "story": {
-      "text_limits": { "headline_chars": [25, 45], "body_chars": [90, 160] }
-    }
+    "post": { "text_limits": { "headline_chars": [35, 60], "body_chars": [140, 260] } },
+    "story": { "text_limits": { "headline_chars": [25, 45], "body_chars": [90, 160] } }
   },
-  "notes": ["pattern 1 observed", "pattern 2 observed"]
+  "notes": ["observation 1", "observation 2"]
 }
 
+═══════════════════════════════════════
 CRITICAL RULES:
-- Look at the ACTUAL images. Extract what you SEE, not what you guess.
-- bg.palette_index refers to the brand palette array index (0-based). Use 0 for primary light, 1 for primary dark, 2 for accent, 3 for soft bg.
-- wave.enabled=true means you saw actual curved/wave shapes in the images. If not, set false.
-- card.enabled=true means text is inside a visible box/card shape. If text is directly on background, set false.
-- text.alignment and vertical_position must match what you see in the images.
-- headline_uppercase=true only if you see UPPERCASE text in the images.
-- Each layout_params role (cover, content, bullets, cta) should faithfully describe the corresponding images.
-- If you only see covers, infer the other roles from the same visual system but be explicit about it.
-- The "name" MUST be exactly "${cat.name}".`;
+═══════════════════════════════════════
+
+1. LOOK AT THE ACTUAL IMAGES. Do not guess or use defaults. Every value must come from what you SEE.
+
+2. COLORS: Use the EXACT hex colors from the brand palette (${paletteStr}). 
+   - bg.colors[0] = the dominant background color you see
+   - bg.colors[1] = secondary gradient color (if gradient) or same as [0] for solid
+   - text.headline_color and text.body_color = the ACTUAL text colors visible in the images
+   - accent_bar.color = the accent/highlight color you see
+   - shape.color = the color of any wave/curve shape you see
+
+3. STRUCTURE: Each role MUST have DIFFERENT structural characteristics if the reference images show different layouts.
+   - If cover has text on left with photo bg, set alignment="left", bg.type="photo_overlay"
+   - If content slides have a white card on colored bg, set card.enabled=true, card.bg_color="#ffffff"
+   - If bullets have numbered items in a container, set bullet_style.container.enabled=true
+
+4. SHAPES: Only set shape.type="wave" if you ACTUALLY SEE a curved/wave shape. If you see a diagonal cut, use "diagonal". If the background is plain, use "none".
+
+5. CARDS: Only set card.enabled=true if you see a visible rectangular container around the text (like a floating card or panel). If text sits directly on the background, card.enabled=false.
+
+6. TEXT SHADOW: If text is on a photo or dark gradient, set text_shadow="subtle" or "strong" for readability.
+
+7. The "name" MUST be exactly "${cat.name}".
+
+8. Every layout_params role (cover, content, bullets, cta) MUST have the FULL structure shown above. Do NOT abbreviate with "...same structure...". Write out every field completely.`;
 }
