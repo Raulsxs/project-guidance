@@ -49,8 +49,11 @@ interface StyleGuide {
     cta_policy?: "never" | "optional" | "always";
     cta_templates?: string[];
     slide_count_range?: [number, number];
+    typography?: Record<string, unknown>;
+    logo?: Record<string, unknown>;
   }>;
   visual_patterns?: string[];
+  notes?: string[];
   confidence?: string;
 }
 
@@ -199,6 +202,9 @@ function buildBrandContextBlock(tokens: BrandTokens, styleGuide: StyleGuide | nu
   if (styleGuide?.visual_patterns && styleGuide.visual_patterns.length > 0) {
     parts.push(`Padrões visuais detectados:\n${styleGuide.visual_patterns.map((p) => `  • ${p}`).join("\n")}`);
   }
+  if (styleGuide?.notes && styleGuide.notes.length > 0) {
+    parts.push(`Notas de estilo:\n${styleGuide.notes.map((n) => `  • ${n}`).join("\n")}`);
+  }
   parts.push(`══════ FIM ══════`);
   return parts.join("\n");
 }
@@ -206,14 +212,17 @@ function buildBrandContextBlock(tokens: BrandTokens, styleGuide: StyleGuide | nu
 function resolveSlideCount(
   contentType: string,
   requestedCount: number | null | undefined,
-  formatConfig: StyleGuide["formats"] extends Record<string, infer V> ? V : never,
+  formatConfig: any,
   contentStyle?: string,
   textLength?: number,
 ): number {
   if (contentType !== "carousel") return 1;
   // User specified a fixed number
-  if (requestedCount && requestedCount >= 3 && requestedCount <= 10) return requestedCount;
-  // Auto: dynamic estimation based on content style and text volume
+  if (requestedCount && requestedCount >= 3 && requestedCount <= 10) {
+    console.log(`[generate-content] Slide count: FIXED by user = ${requestedCount}`);
+    return requestedCount;
+  }
+  // Auto: dynamic estimation
   return getAutoSlideCount(contentStyle || "news", textLength || 0, formatConfig);
 }
 
@@ -284,24 +293,23 @@ function buildSlideRoles(
 ): string[] {
   if (contentType !== "carousel") return ["cover"];
   
-  // Use template set roles if they match the count exactly
-  if (formatConfig?.slide_roles && formatConfig.slide_roles.length === slideCount) {
-    const roles = [...formatConfig.slide_roles];
-    // Strip closing/cta role if CTA is disabled
-    if (!includeCta && roles.length > 0 && roles[roles.length - 1] === "closing") {
-      roles[roles.length - 1] = "insight";
-    }
-    return roles;
-  }
-  
-  // Build roles dynamically
+  // Build roles dynamically based on slide count
   const roles: string[] = ["cover"];
   const contentSlots = includeCta ? slideCount - 2 : slideCount - 1;
+  
+  // Use template set's slide_roles as a guide for role distribution
+  const tsRoles = formatConfig?.slide_roles as string[] | undefined;
+  const hasBulletsRole = tsRoles?.includes("bullets");
   
   if (contentSlots > 0) {
     roles.push("context");
     for (let i = 1; i < contentSlots; i++) {
-      roles.push("insight");
+      // Alternate between insight and bullets if the template set supports bullets
+      if (hasBulletsRole && i === contentSlots - 1) {
+        roles.push("bullets");
+      } else {
+        roles.push("insight");
+      }
     }
   }
   
@@ -309,6 +317,7 @@ function buildSlideRoles(
     roles.push("cta");
   }
   
+  console.log(`[generate-content] Slide roles: [${roles.join(", ")}] (count=${slideCount}, cta=${includeCta}, hasBullets=${hasBulletsRole})`);
   return roles;
 }
 
@@ -352,13 +361,15 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    // Use getUser() instead of getClaims() for reliable auth
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData?.user) {
+      console.error("[generate-content] Auth error:", userError?.message || "No user");
       return new Response(JSON.stringify({ error: "Invalid token" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    console.log(`[generate-content] Authenticated user: ${userData.user.id}`);
 
     const {
       trend,
@@ -374,6 +385,8 @@ serve(async (req) => {
       manualBriefing = null,
     } = await req.json() as GenerateContentRequest;
 
+    console.log(`[generate-content] Request: contentType=${contentType}, contentStyle=${contentStyle}, brandId=${brandId}, templateSetId=${templateSetId}, requestedSlideCount=${requestedSlideCount}, includeCta=${includeCta}`);
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
@@ -384,6 +397,7 @@ serve(async (req) => {
     let activeStyleGuide: StyleGuide = DEFAULT_STYLE_GUIDE;
     let resolvedTemplateSetId: string | null = null;
     let templateSetName: string | null = null;
+    let templateSetNotes: string[] = [];
 
     if (brandId && effectiveMode !== "free") {
       console.log(`[generate-content] Loading brand: ${brandId}, mode: ${effectiveMode}`);
@@ -406,42 +420,50 @@ serve(async (req) => {
         // ══════ HARD LOCK: Use ONLY the selected template set ══════
         const tsId = templateSetId || (brand as any).default_template_set_id;
         if (tsId) {
-          const { data: tsData } = await supabase
+          console.log(`[generate-content] Loading template set: ${tsId} (source=${templateSetId ? 'selected' : 'default'})`);
+          const { data: tsData, error: tsError } = await supabase
             .from("brand_template_sets")
             .select("template_set, name")
             .eq("id", tsId)
             .single();
 
-          if (tsData?.template_set) {
+          if (tsError) {
+            console.error(`[generate-content] Template set load error:`, tsError);
+          } else if (tsData?.template_set) {
             const ts = tsData.template_set as any;
             resolvedTemplateSetId = tsId;
             templateSetName = tsData.name;
+            templateSetNotes = ts.notes || [];
             
             // HARD LOCK: Build style guide EXCLUSIVELY from the template set
-            // Do NOT merge with brand base style guide - use template set as the sole source
+            const formatConfig = ts.formats?.[contentType];
+            
             activeStyleGuide = {
-              style_preset: ts.style_preset || brand.style_guide?.style_preset || "clean_minimal",
+              style_preset: ts.style_preset || "clean_minimal",
               brand_tokens: {
-                ...(brand.style_guide?.brand_tokens || {}),
-                // Override with template set typography/logo if present
-                ...(ts.formats?.[contentType]?.typography ? { typography: ts.formats[contentType].typography } : {}),
-                ...(ts.formats?.[contentType]?.logo ? { logo: ts.formats[contentType].logo } : {}),
+                palette_roles: brand.style_guide?.brand_tokens?.palette_roles || {},
+                // Override typography/logo from template set FORMAT (not just top-level)
+                typography: formatConfig?.typography || brand.style_guide?.brand_tokens?.typography || {},
+                logo: formatConfig?.logo || brand.style_guide?.brand_tokens?.logo || {},
               },
-              // Use ONLY the template set formats - no fallback to brand base
+              // Use ONLY the template set formats
               formats: ts.formats || {},
               visual_patterns: ts.visual_patterns || brand.style_guide?.visual_patterns || [],
+              notes: ts.notes || [],
               confidence: ts.confidence || "high",
             };
 
-            console.log(`[generate-content] HARD-LOCK template set: "${tsData.name}" (${tsId}). Using ONLY this set's rules.`);
+            console.log(`[generate-content] template_set_resolved=${tsId} name="${templateSetName}" source=${templateSetId ? 'selected' : 'default'}`);
+            console.log(`[generate-content] HARD-LOCK applied. Format config: recommended_templates=${formatConfig?.recommended_templates?.join(',')}, slide_roles=${formatConfig?.slide_roles?.join(',')}, background_style=${formatConfig?.layout_rules?.background_style}, bullets_max=${formatConfig?.text_limits?.bullets_max}`);
           }
         } else if (brand.style_guide) {
           // No template set selected - use brand base style guide
           activeStyleGuide = brand.style_guide as StyleGuide;
+          console.log(`[generate-content] No template set, using brand base style guide`);
         }
 
         brandContext = buildBrandContextBlock(brandTokens, activeStyleGuide);
-        console.log(`[generate-content] Brand loaded: ${brandTokens.name}, ${brandTokens.palette.length} colors, mode=${effectiveMode}, style_guide_v${brand.style_guide_version || 0}`);
+        console.log(`[generate-content] Brand loaded: ${brandTokens.name}, ${brandTokens.palette.length} colors, mode=${effectiveMode}`);
       }
     }
 
@@ -457,9 +479,13 @@ serve(async (req) => {
     // Calculate text length for auto slide count estimation
     const textLength = (trend.fullContent || "").length + (trend.description || "").length + (manualBriefing?.body || "").length + (manualBriefing?.notes || "").length;
     const slideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig, contentStyle, textLength);
+    const totalSlides = contentType === "carousel" && effectiveIncludeCta ? slideCount + 1 : slideCount;
+    
     const textLimits = getTextLimits(activeStyleGuide, contentType);
     const templatePool = getTemplatesForFormat(activeStyleGuide, contentType, effectiveMode);
-    const slideRoles = buildSlideRoles(contentType, slideCount, formatConfig, effectiveIncludeCta);
+    const slideRoles = buildSlideRoles(contentType, totalSlides, formatConfig, effectiveIncludeCta);
+
+    console.log(`[generate-content] slide_count_resolved=${totalSlides} (content=${slideCount}, cta=${effectiveIncludeCta ? 1 : 0}), roles=[${slideRoles.join(',')}]`);
 
     // ══════ SOURCE CONTEXT ══════
     const fullContent = trend.fullContent || "";
@@ -481,10 +507,14 @@ serve(async (req) => {
     // ══════ TEMPLATE SET ENFORCEMENT BLOCK ══════
     let templateSetEnforcementBlock = "";
     if (templateSetName && resolvedTemplateSetId) {
+      const notesBlock = templateSetNotes.length > 0
+        ? `NOTAS DE ESTILO (aplique rigorosamente):\n${templateSetNotes.map(n => `  • ${n}`).join("\n")}`
+        : "";
       templateSetEnforcementBlock = `
 ══════ ESTILO SELECIONADO: "${templateSetName}" ══════
 REGRAS OBRIGATÓRIAS: Use APENAS as regras deste estilo.
-${formatConfig ? `CONFIGURAÇÃO DO FORMATO: ${JSON.stringify(formatConfig)}` : ""}
+${notesBlock}
+${formatConfig ? `CONFIGURAÇÃO DO FORMATO:\n${JSON.stringify(formatConfig, null, 2)}` : ""}
 PROIBIDO: Usar elementos visuais, tom ou estrutura típicos de OUTROS estilos da marca.
 Cada slide DEVE usar os templates definidos por este estilo. NÃO misture templates de estilos diferentes.
 ══════ FIM DO ESTILO ══════`;
@@ -492,12 +522,12 @@ Cada slide DEVE usar os templates definidos por este estilo. NÃO misture templa
 
     // ══════ CTA INSTRUCTION ══════
     const ctaInstruction = effectiveIncludeCta
-      ? `O último slide DEVE ser um CTA de engajamento com:
+      ? `O último slide (slide ${totalSlides}) DEVE ser um CTA de engajamento com:
   - role: "cta"
   - headline: "Gostou do conteúdo?"
   - body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌"
-  - template: "${(formatConfig as any)?.cta_templates?.[0] || 'wave_closing'}"
-  Este slide CTA é OBRIGATÓRIO e deve seguir EXATAMENTE este formato.`
+  - template: "${(formatConfig as any)?.cta_templates?.[0] || (formatConfig as any)?.role_to_template?.closing || 'wave_closing'}"
+  Este slide CTA é OBRIGATÓRIO e deve ser o ÚLTIMO slide.`
       : "NÃO inclua CTA final. O último slide deve ser um insight ou conclusão, NÃO um 'curta comente compartilhe'.";
 
     // ══════ SYSTEM PROMPT ══════
@@ -518,21 +548,21 @@ ${templateSetEnforcementBlock}
 ${brandContext}`;
 
     // ══════ USER PROMPT ══════
-    const formatLabel = contentType === "post" ? "post para feed (1 slide, 1080x1350)" : contentType === "story" ? "story (1 slide, 1080x1920)" : `carrossel com EXATAMENTE ${slideCount} slides (1080x1350 cada)`;
+    const formatLabel = contentType === "post" ? "post para feed (1 slide, 1080x1350)" : contentType === "story" ? "story (1 slide, 1080x1920)" : `carrossel com EXATAMENTE ${totalSlides} slides (1080x1350 cada)`;
 
     const slideRolesStr = contentType === "carousel"
       ? `Cada slide TEM um papel (role): ${slideRoles.join(", ")}.\nEstrutura: ${styleConfig.structure}`
       : `1 slide com role "cover".`;
 
-    // Build template assignments using role_to_template from the template set if available
+    // Build template assignments using role_to_template from the template set
     const roleToTemplate = (formatConfig as any)?.role_to_template as Record<string, string> | undefined;
     const templateAssignments = contentType === "carousel"
       ? slideRoles.map((role, i) => {
           if (roleToTemplate && roleToTemplate[role]) {
-            return `Slide ${i + 1} (${role}): ${roleToTemplate[role]}`;
+            return `Slide ${i + 1} (${role}): template="${roleToTemplate[role]}"`;
           }
-          const tpl = i === 0 ? templatePool[0] : i === slideCount - 1 ? (templatePool[templatePool.length - 1] || templatePool[0]) : (templatePool[Math.min(i, templatePool.length - 1)] || templatePool[1] || templatePool[0]);
-          return `Slide ${i + 1} (${role}): ${tpl}`;
+          const tpl = i === 0 ? templatePool[0] : i === totalSlides - 1 ? (templatePool[templatePool.length - 1] || templatePool[0]) : (templatePool[Math.min(i, templatePool.length - 1)] || templatePool[1] || templatePool[0]);
+          return `Slide ${i + 1} (${role}): template="${tpl}"`;
         }).join("\n")
       : `Template: ${templatePool[0]}.`;
 
@@ -585,9 +615,9 @@ Retorne EXATAMENTE este JSON (sem markdown, sem backticks):
   ]
 }
 
-${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: ${slideRoles.join(", ")}.` : "Crie exatamente 1 slide."}`;
+${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles: ${slideRoles.join(", ")}.` : "Crie exatamente 1 slide."}`;
 
-    console.log(`[generate-content] Generating ${contentStyle} ${contentType}, mode=${effectiveMode}${brandTokens ? `, brand=${brandTokens.name}` : ""}, slideCount=${slideCount}, includeCta=${effectiveIncludeCta}, templateSet=${templateSetName || 'none'}, fullContent=${fullContent.length}chars...`);
+    console.log(`[generate-content] Generating ${contentStyle} ${contentType}, mode=${effectiveMode}${brandTokens ? `, brand=${brandTokens.name}` : ""}, slideCount=${totalSlides}, includeCta=${effectiveIncludeCta}, templateSet=${templateSetName || 'none'}, fullContent=${fullContent.length}chars...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -658,21 +688,46 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
 
     // ══════ ENFORCE CTA SLIDE ══════
     if (contentType === "carousel" && effectiveIncludeCta) {
+      const ctaTemplate = (formatConfig as any)?.cta_templates?.[0] || (roleToTemplate?.closing) || "wave_closing";
+      
+      // Check if the last slide is already a CTA
       const lastSlide = processedSlides[processedSlides.length - 1];
-      const ctaTemplate = (formatConfig as any)?.cta_templates?.[0] || "wave_closing";
-      // Force the last slide to be CTA regardless of what the AI generated
       if (lastSlide && lastSlide.role !== "cta") {
+        // Replace the last slide with CTA
         processedSlides[processedSlides.length - 1] = {
-          ...lastSlide,
           role: "cta",
           template: ctaTemplate,
           templateHint: ctaTemplate,
           headline: "Gostou do conteúdo?",
           body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
           bullets: [],
+          speakerNotes: "",
+          illustrationPrompt: "",
+          imagePrompt: "",
         };
+      } else if (!lastSlide) {
+        // Add CTA slide
+        processedSlides.push({
+          role: "cta",
+          template: ctaTemplate,
+          templateHint: ctaTemplate,
+          headline: "Gostou do conteúdo?",
+          body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
+          bullets: [],
+          speakerNotes: "",
+          illustrationPrompt: "",
+          imagePrompt: "",
+        });
       }
-      console.log(`[generate-content] CTA slide enforced at position ${processedSlides.length}`);
+      console.log(`[generate-content] CTA slide enforced at position ${processedSlides.length}, template=${ctaTemplate}`);
+    }
+
+    // Ensure slide count matches
+    if (contentType === "carousel" && processedSlides.length !== totalSlides) {
+      console.log(`[generate-content] Slide count mismatch: got ${processedSlides.length}, expected ${totalSlides}. Adjusting...`);
+      if (processedSlides.length > totalSlides) {
+        processedSlides = processedSlides.slice(0, totalSlides);
+      }
     }
 
     // ══════ IMAGE GENERATION (conditional on background_style) ══════
@@ -734,7 +789,8 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
       trendTitle: trend.title,
       brandId: brandId || null,
       templateSetId: resolvedTemplateSetId,
-      slideCount,
+      templateSetName: templateSetName,
+      slideCount: totalSlides,
       includeCta: effectiveIncludeCta,
       brandSnapshot: brandTokens ? {
         name: brandTokens.name,
@@ -747,7 +803,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${slideCount} slides com roles: 
       } : null,
     };
 
-    console.log(`[generate-content] SUCCESS: brandId=${brandId || 'null'}, templateSet=${templateSetName || 'none'}, palette=${brandTokens?.palette?.length ?? 0}, mode=${effectiveMode}, slides=${processedSlides.length}, includeCta=${effectiveIncludeCta}`);
+    console.log(`[generate-content] SUCCESS: brandId=${brandId || 'null'}, templateSet="${templateSetName || 'none'}" (${resolvedTemplateSetId || 'null'}), palette=${brandTokens?.palette?.length ?? 0}, mode=${effectiveMode}, slides=${processedSlides.length}, includeCta=${effectiveIncludeCta}, bgStyle=${bgStyle}`);
 
     return new Response(JSON.stringify({ success: true, content: result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
