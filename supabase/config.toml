@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.update-template-sets-if-needed]
 verify_jwt = false
+
+[functions.generate-slide-images]
+verify_jwt = false

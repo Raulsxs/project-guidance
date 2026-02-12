@@ -116,6 +116,8 @@ export default function ManualStudioEditor() {
 
   // AI generation
   const [generating, setGenerating] = useState(false);
+  const [generatingImages, setGeneratingImages] = useState(false);
+  const [imageGenProgress, setImageGenProgress] = useState("");
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [sourceSummary, setSourceSummary] = useState("");
@@ -278,12 +280,12 @@ export default function ManualStudioEditor() {
 
       const content = data.content;
 
-      // Fill slides from AI response — then RE-APPLY template set IDs
+      // Fill slides from AI response
+      let newSlides: SlideData[] = [];
       if (content.slides && content.slides.length > 0) {
         const ts = resolvedTs?.template_set || null;
-        setSlides(content.slides.map((s: any) => {
+        newSlides = content.slides.map((s: any) => {
           const role = s.role || "cover";
-          // CRITICAL: Use template set mapping, NOT what AI returned
           const tpl = resolveTemplateForSlide(ts, role);
           return {
             headline: s.headline || "",
@@ -297,7 +299,8 @@ export default function ManualStudioEditor() {
             illustrationPrompt: s.illustrationPrompt || "",
             imagePrompt: s.imagePrompt || "",
           };
-        }));
+        });
+        setSlides(newSlides);
         setCurrentSlide(0);
       }
 
@@ -308,12 +311,84 @@ export default function ManualStudioEditor() {
       if (content.keyInsights) setKeyInsights(content.keyInsights);
       if (content.title) setTitle(content.title);
 
-      toast.success("Conteúdo gerado pela IA! Edite à vontade.");
+      toast.success("Texto gerado! Gerando imagens dos slides...");
+      setGenerating(false);
+
+      // ══════ STEP 2: Generate slide images with AI ══════
+      if (brandId && newSlides.length > 0) {
+        setGeneratingImages(true);
+        setImageGenProgress(`Gerando imagem 1/${newSlides.length}...`);
+        try {
+          const { data: imgData, error: imgError } = await supabase.functions.invoke("generate-slide-images", {
+            body: {
+              brandId,
+              slides: newSlides,
+              articleUrl: notes || undefined,
+              articleContent: "",
+              contentId: `studio-${Date.now()}`,
+            },
+          });
+
+          if (imgError) throw imgError;
+
+          if (imgData?.success && imgData.slides) {
+            setSlides(prev => prev.map((s, i) => ({
+              ...s,
+              previewImage: imgData.slides[i]?.previewImage || s.previewImage,
+            })));
+            const generatedCount = imgData.slides.filter((s: any) => s.previewImage).length;
+            toast.success(`${generatedCount} imagens geradas pela IA!`);
+          }
+        } catch (imgErr: any) {
+          console.error("Image generation error:", imgErr);
+          toast.error("Erro ao gerar imagens: " + (imgErr.message || "Tente novamente"));
+        } finally {
+          setGeneratingImages(false);
+          setImageGenProgress("");
+        }
+      } else {
+        toast.success("Conteúdo gerado pela IA! Edite à vontade.");
+      }
     } catch (err: any) {
       console.error("AI generation error:", err);
       toast.error("Erro ao gerar: " + (err.message || "Tente novamente"));
-    } finally {
       setGenerating(false);
+    }
+  };
+
+  // ── Regenerate single slide image ──
+  const handleRegenerateSlideImage = async (index: number) => {
+    const brandId = selectedBrand === "free" ? null : selectedBrand;
+    if (!brandId) {
+      toast.error("Selecione uma marca para gerar imagens");
+      return;
+    }
+    setGeneratingImages(true);
+    setImageGenProgress(`Regenerando slide ${index + 1}...`);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-slide-images", {
+        body: {
+          brandId,
+          slides,
+          slideIndex: index,
+          articleUrl: notes || undefined,
+          contentId: `studio-regen-${Date.now()}`,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.success && data.slides) {
+        setSlides(prev => prev.map((s, i) => ({
+          ...s,
+          previewImage: i === index ? (data.slides[index]?.previewImage || s.previewImage) : s.previewImage,
+        })));
+        toast.success("Imagem regenerada!");
+      }
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Tente novamente"));
+    } finally {
+      setGeneratingImages(false);
+      setImageGenProgress("");
     }
   };
 
@@ -504,12 +579,14 @@ export default function ManualStudioEditor() {
         <div className="lg:col-span-7 flex items-end">
           <Button
             onClick={handleGenerateWithAI}
-            disabled={generating || !title.trim()}
+            disabled={generating || generatingImages || !title.trim()}
             className="gap-2 h-12"
             size="lg"
           >
             {generating ? (
-              <><Loader2 className="w-5 h-5 animate-spin" /> Gerando com IA...</>
+              <><Loader2 className="w-5 h-5 animate-spin" /> Gerando texto...</>
+            ) : generatingImages ? (
+              <><Loader2 className="w-5 h-5 animate-spin" /> {imageGenProgress || "Gerando imagens..."}</>
             ) : (
               <><Wand2 className="w-5 h-5" /> Gerar com IA</>
             )}
@@ -662,39 +739,60 @@ export default function ManualStudioEditor() {
                 className="overflow-hidden rounded-[1.5rem] bg-background"
                 style={{ aspectRatio: selectedFormat === "story" ? "9/16" : "4/5" }}
               >
-                <div
-                  style={{
-                    transform: `scale(${328 / dims.width})`,
-                    transformOrigin: "top left",
-                    width: dims.width,
-                    height: dims.height,
-                  }}
-                >
-                  <SlideTemplateRenderer
-                    slide={slide || { headline: "", body: "" }}
-                    slideIndex={currentSlide}
-                    totalSlides={slides.length}
-                    brand={brandSnapshot}
-                    template={slideTemplate}
-                    dimensions={dims}
+                {/* Show AI-generated image if available, otherwise fallback to template renderer */}
+                {slide?.previewImage ? (
+                  <img
+                    src={slide.previewImage}
+                    alt={`Slide ${currentSlide + 1}`}
+                    className="w-full h-full object-cover"
                   />
-                </div>
+                ) : (
+                  <div
+                    style={{
+                      transform: `scale(${328 / dims.width})`,
+                      transformOrigin: "top left",
+                      width: dims.width,
+                      height: dims.height,
+                    }}
+                  >
+                    <SlideTemplateRenderer
+                      slide={slide || { headline: "", body: "" }}
+                      slideIndex={currentSlide}
+                      totalSlides={slides.length}
+                      brand={brandSnapshot}
+                      template={slideTemplate}
+                      dimensions={dims}
+                    />
+                  </div>
+                )}
               </div>
               <div className="mx-auto mt-2 h-1 w-24 rounded-full bg-muted-foreground/20" />
             </div>
           </div>
 
-          <div className="mt-4 text-center space-y-1">
+          <div className="mt-4 text-center space-y-2">
+            {/* Regenerate single slide button */}
+            {selectedBrand !== "free" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => handleRegenerateSlideImage(currentSlide)}
+                disabled={generatingImages}
+              >
+                {generatingImages ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5" />
+                )}
+                {slide?.previewImage ? "Regenerar imagem" : "Gerar imagem"}
+              </Button>
+            )}
             {resolvedTs && (
               <Badge className="text-xs px-3 py-1">
                 Estilo aplicado: {resolvedTs.name}
               </Badge>
             )}
-            <div>
-              <Badge variant="secondary" className="text-[10px]">
-                Template: {slideTemplate}
-              </Badge>
-            </div>
           </div>
         </div>
       </div>
