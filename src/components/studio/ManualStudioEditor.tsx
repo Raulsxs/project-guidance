@@ -322,41 +322,50 @@ export default function ManualStudioEditor() {
         setImageGenProgress(`Gerando imagens 0/${newSlides.length}...`);
 
         try {
-          const promises = newSlides.map((s, i) =>
-            supabase.functions.invoke("generate-slide-images", {
-              body: {
-                brandId,
-                slide: s,
-                slideIndex: i,
-                totalSlides: newSlides.length,
-                contentFormat: selectedFormat,
-                articleUrl: notes || undefined,
-                articleContent: "",
-                contentId,
-              },
-            }).then(result => {
-              completedCount++;
-              setImageGenProgress(`Gerando imagens ${completedCount}/${newSlides.length}...`);
-              return { index: i, data: result.data, error: result.error };
-            })
-          );
+          // Stagger calls: 2 at a time with 1.5s delay between batches
+          const batchSize = 2;
+          const allResults: { index: number; data: any; error: any }[] = [];
 
-          const results = await Promise.allSettled(promises);
+          for (let batch = 0; batch < newSlides.length; batch += batchSize) {
+            const batchSlides = newSlides.slice(batch, batch + batchSize);
+            const batchPromises = batchSlides.map((s, batchIdx) => {
+              const i = batch + batchIdx;
+              return supabase.functions.invoke("generate-slide-images", {
+                body: {
+                  brandId,
+                  slide: s,
+                  slideIndex: i,
+                  totalSlides: newSlides.length,
+                  contentFormat: selectedFormat,
+                  articleUrl: notes || undefined,
+                  articleContent: "",
+                  contentId,
+                },
+              }).then(result => {
+                completedCount++;
+                setImageGenProgress(`Gerando imagens ${completedCount}/${newSlides.length}...`);
+                // Update preview immediately as each image arrives
+                if (result.data?.imageUrl) {
+                  setSlides(prev => prev.map((sl, idx) =>
+                    idx === i ? { ...sl, previewImage: result.data.imageUrl } : sl
+                  ));
+                }
+                return { index: i, data: result.data, error: result.error };
+              });
+            });
 
-          setSlides(prev => {
-            const updated = [...prev];
-            for (const result of results) {
-              if (result.status === "fulfilled" && result.value.data?.imageUrl) {
-                const { index, data } = result.value;
-                updated[index] = { ...updated[index], previewImage: data.imageUrl };
-              }
+            const batchResults = await Promise.allSettled(batchPromises);
+            for (const r of batchResults) {
+              if (r.status === "fulfilled") allResults.push(r.value);
             }
-            return updated;
-          });
 
-          const successCount = results.filter(r =>
-            r.status === "fulfilled" && r.value.data?.imageUrl
-          ).length;
+            // Small delay between batches to avoid rate limits
+            if (batch + batchSize < newSlides.length) {
+              await new Promise(r => setTimeout(r, 1500));
+            }
+          }
+
+          const successCount = allResults.filter(r => r.data?.imageUrl).length;
           toast.success(`${successCount}/${newSlides.length} imagens geradas!`);
         } catch (imgErr: any) {
           console.error("Image generation error:", imgErr);
