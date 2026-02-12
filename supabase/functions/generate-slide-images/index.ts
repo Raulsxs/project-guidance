@@ -69,8 +69,8 @@ serve(async (req) => {
     // ══════ BUILD MULTIMODAL REQUEST ══════
     const contentParts: any[] = [];
 
-    // Add reference images (max 8)
-    for (const imgUrl of referenceImageUrls.slice(0, 8)) {
+    // Add reference images (max 6 to reduce payload)
+    for (const imgUrl of referenceImageUrls.slice(0, 6)) {
       contentParts.push({
         type: "image_url",
         image_url: { url: imgUrl },
@@ -81,44 +81,64 @@ serve(async (req) => {
     const prompt = buildPrompt(slide, slideIndex || 0, totalSlides || 1, brandInfo, articleUrl, articleContent, contentFormat);
     contentParts.push({ type: "text", text: prompt });
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [{ role: "user", content: contentParts }],
-        modalities: ["image", "text"],
-      }),
-    });
+    // Retry logic for transient errors (502, 503, 429)
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        const delay = attempt * 3000 + Math.random() * 2000;
+        console.log(`[generate-slide-images] Retry ${attempt}/2 after ${Math.round(delay)}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
 
-    if (!response.ok) {
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-image",
+          messages: [{ role: "user", content: contentParts }],
+          modalities: ["image", "text"],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+        if (!base64Image) {
+          return new Response(JSON.stringify({ success: true, imageUrl: null }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
+        console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded`);
+
+        return new Response(JSON.stringify({ success: true, imageUrl }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const status = response.status;
-      if (status === 429) throw new Error("Rate limit exceeded. Try again later.");
       if (status === 402) throw new Error("Insufficient credits.");
+      
+      // Retryable errors
+      if (status === 429 || status === 502 || status === 503) {
+        const errText = await response.text();
+        console.warn(`[generate-slide-images] Retryable error ${status} on attempt ${attempt + 1}`);
+        lastError = new Error(`AI error: ${status}`);
+        continue;
+      }
+
+      // Non-retryable
       const errText = await response.text();
-      console.error(`[generate-slide-images] AI error ${status}:`, errText);
+      console.error(`[generate-slide-images] Non-retryable error ${status}:`, errText.substring(0, 200));
       throw new Error(`AI image error: ${status}`);
     }
 
-    const data = await response.json();
-    const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-
-    if (!base64Image) {
-      return new Response(JSON.stringify({ success: true, imageUrl: null }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Upload to storage
-    const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
-    console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded`);
-
-    return new Response(JSON.stringify({ success: true, imageUrl }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    throw lastError || new Error("Max retries exceeded");
 
   } catch (error) {
     console.error("[generate-slide-images] error:", error);
