@@ -478,14 +478,17 @@ serve(async (req) => {
     
     // Calculate text length for auto slide count estimation
     const textLength = (trend.fullContent || "").length + (trend.description || "").length + (manualBriefing?.body || "").length + (manualBriefing?.notes || "").length;
-    const slideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig, contentStyle, textLength);
-    const totalSlides = contentType === "carousel" && effectiveIncludeCta ? slideCount + 1 : slideCount;
+    
+    // resolveSlideCount returns the number of CONTENT slides (excluding CTA)
+    const contentSlideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig, contentStyle, textLength);
+    // Total = content + optional CTA
+    const totalSlides = contentType === "carousel" && effectiveIncludeCta ? contentSlideCount + 1 : contentSlideCount;
     
     const textLimits = getTextLimits(activeStyleGuide, contentType);
     const templatePool = getTemplatesForFormat(activeStyleGuide, contentType, effectiveMode);
     const slideRoles = buildSlideRoles(contentType, totalSlides, formatConfig, effectiveIncludeCta);
 
-    console.log(`[generate-content] slide_count_resolved=${totalSlides} (content=${slideCount}, cta=${effectiveIncludeCta ? 1 : 0}), roles=[${slideRoles.join(',')}]`);
+    console.log(`[generate-content] slide_count_resolved: content=${contentSlideCount}, cta=${effectiveIncludeCta ? 1 : 0}, total=${totalSlides}, roles=[${slideRoles.join(',')}]`);
 
     // ══════ SOURCE CONTEXT ══════
     const fullContent = trend.fullContent || "";
@@ -689,37 +692,31 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
     // ══════ ENFORCE CTA SLIDE ══════
     if (contentType === "carousel" && effectiveIncludeCta) {
       const ctaTemplate = (formatConfig as any)?.cta_templates?.[0] || (roleToTemplate?.closing) || "wave_closing";
+      const ctaSlide = {
+        role: "cta",
+        template: ctaTemplate,
+        templateHint: ctaTemplate,
+        headline: "Gostou do conteúdo?",
+        body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
+        bullets: [],
+        speakerNotes: "",
+        illustrationPrompt: "",
+        imagePrompt: "",
+      };
       
-      // Check if the last slide is already a CTA
-      const lastSlide = processedSlides[processedSlides.length - 1];
-      if (lastSlide && lastSlide.role !== "cta") {
-        // Replace the last slide with CTA
-        processedSlides[processedSlides.length - 1] = {
-          role: "cta",
-          template: ctaTemplate,
-          templateHint: ctaTemplate,
-          headline: "Gostou do conteúdo?",
-          body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
-          bullets: [],
-          speakerNotes: "",
-          illustrationPrompt: "",
-          imagePrompt: "",
-        };
-      } else if (!lastSlide) {
-        // Add CTA slide
-        processedSlides.push({
-          role: "cta",
-          template: ctaTemplate,
-          templateHint: ctaTemplate,
-          headline: "Gostou do conteúdo?",
-          body: "Curta ❤️ Comente 💬 Compartilhe 🔄 Salve 📌",
-          bullets: [],
-          speakerNotes: "",
-          illustrationPrompt: "",
-          imagePrompt: "",
-        });
+      // Remove any existing CTA/closing from the end to avoid duplication
+      while (processedSlides.length > 1 && (processedSlides[processedSlides.length - 1].role === "cta" || processedSlides[processedSlides.length - 1].role === "closing")) {
+        processedSlides.pop();
       }
-      console.log(`[generate-content] CTA slide enforced at position ${processedSlides.length}, template=${ctaTemplate}`);
+      // Always APPEND CTA as the final slide
+      processedSlides.push(ctaSlide);
+      console.log(`[generate-content] CTA slide appended at position ${processedSlides.length}, template=${ctaTemplate}, total=${processedSlides.length}`);
+    }
+    
+    // Remove CTA if toggle is OFF
+    if (contentType === "carousel" && !effectiveIncludeCta) {
+      processedSlides = processedSlides.filter(s => s.role !== "cta");
+      console.log(`[generate-content] CTA removed (toggle OFF), total=${processedSlides.length}`);
     }
 
     // Ensure slide count matches
