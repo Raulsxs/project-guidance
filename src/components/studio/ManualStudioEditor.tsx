@@ -173,6 +173,7 @@ export default function ManualStudioEditor() {
     logo_url: currentBrand.logo_url,
     style_guide: resolvedTs?.template_set || currentBrand.style_guide || null,
     visual_signature: resolvedTs?.template_set?.visual_signature || null,
+    layout_params: resolvedTs?.template_set?.layout_params || null,
   } : {
     name: "Modo Livre",
     palette: ["#667eea", "#764ba2", "#f093fb"],
@@ -181,6 +182,7 @@ export default function ManualStudioEditor() {
     logo_url: null,
     style_guide: null,
     visual_signature: null,
+    layout_params: null,
   };
 
   // Apply template set templates to slides — uses resolveTemplateForSlide for deterministic mapping
