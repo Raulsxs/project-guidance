@@ -567,7 +567,14 @@ const TemplateMap: Record<string, React.FC<SlideTemplateRendererProps>> = {
   wave_bullets: WaveBulletsTemplate,
   wave_closing: WaveClosingTemplate,
   wave_closing_cta: WaveClosingTemplate,
-  // Editorial dark
+  wave_cta: WaveClosingTemplate,
+  // Editorial dark — multiple aliases so any naming convention works
+  editorial_cover: EditorialDarkCoverTemplate,
+  editorial_text: EditorialDarkTextTemplate,
+  editorial_bullets: EditorialDarkBulletsTemplate,
+  editorial_cta: EditorialDarkCtaTemplate,
+  editorial_quote: EditorialDarkTextTemplate,
+  editorial_question: EditorialDarkTextTemplate,
   dark_cover_bold_text: EditorialDarkCoverTemplate,
   dark_full_text_slide: EditorialDarkTextTemplate,
   dark_bullet_points: EditorialDarkBulletsTemplate,
@@ -579,6 +586,62 @@ const TemplateMap: Record<string, React.FC<SlideTemplateRendererProps>> = {
   generic_free: GenericFreeTemplate,
   solid_cover: WaveCoverTemplate,
 };
+
+/**
+ * Derive templates_by_role from visual_signature.
+ * This is the KEY function that ensures different template sets use different actual components.
+ */
+export function deriveTemplatesByRole(visualSignature?: VisualSignature | null): Record<string, string> {
+  const tv = visualSignature?.theme_variant || "";
+  
+  if (tv.includes("editorial") || tv.includes("dark")) {
+    return {
+      cover: "editorial_cover",
+      context: "editorial_text",
+      content: "editorial_text",
+      insight: "editorial_bullets",
+      bullets: "editorial_bullets",
+      quote: "editorial_quote",
+      question: "editorial_question",
+      closing: "editorial_cta",
+      cta: "editorial_cta",
+    };
+  }
+  // Default: wave/clinical/light
+  return {
+    cover: "wave_cover",
+    context: "wave_text_card",
+    content: "wave_text_card",
+    insight: "wave_bullets",
+    bullets: "wave_bullets",
+    quote: "wave_text_card",
+    question: "wave_text_card",
+    closing: "wave_closing",
+    cta: "wave_closing",
+  };
+}
+
+/**
+ * Resolve the template_id for a slide given a template set and role.
+ */
+export function resolveTemplateForSlide(
+  templateSet: any | null,
+  role: string,
+  fallbackVisualSignature?: VisualSignature | null,
+): string {
+  // 1. Check templates_by_role in template_set JSON
+  const tbr = templateSet?.templates_by_role;
+  if (tbr && tbr[role]) return tbr[role];
+  
+  // 2. Check role_to_template in formats.carousel
+  const rtt = templateSet?.formats?.carousel?.role_to_template;
+  if (rtt && rtt[role]) return rtt[role];
+  
+  // 3. Derive from visual_signature
+  const vs = templateSet?.visual_signature || fallbackVisualSignature;
+  const derived = deriveTemplatesByRole(vs);
+  return derived[role] || derived["content"] || "wave_text_card";
+}
 
 export function getTemplateForSlide(slideIndex: number, totalSlides: number, styleGuide?: StyleGuide | null): string {
   const recommended = (styleGuide as any)?.recommended_templates || (styleGuide as any)?.formats?.carousel?.recommended_templates || ["wave_cover", "wave_text_card"];

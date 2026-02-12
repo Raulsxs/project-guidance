@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import SlideTemplateRenderer from "@/components/content/SlideTemplateRenderer";
+import SlideTemplateRenderer, { resolveTemplateForSlide } from "@/components/content/SlideTemplateRenderer";
 import {
   Sparkles, Palette, Layers, Square, Smartphone, Save,
   ChevronLeft, ChevronRight, Plus, Trash2, Loader2,
@@ -70,26 +70,22 @@ const STYLES = [
 ];
 
 const CAROUSEL_ROLES = ["cover", "context", "insight", "insight", "closing"];
-const ROLE_TEMPLATES: Record<string, string> = {
-  cover: "wave_cover",
-  context: "wave_text_card",
-  insight: "wave_bullets",
-  closing: "wave_closing",
-  cta: "wave_closing",
-};
 
-function getDefaultSlides(format: string): SlideData[] {
+function getDefaultSlides(format: string, templateSet?: any): SlideData[] {
   if (format === "carousel") {
-    return CAROUSEL_ROLES.map((role) => ({
-      headline: "",
-      body: "",
-      bullets: role === "insight" ? [""] : undefined,
-      role,
-      template: ROLE_TEMPLATES[role] || "wave_text_card",
-      templateHint: ROLE_TEMPLATES[role] || "wave_text_card",
-    }));
+    return CAROUSEL_ROLES.map((role) => {
+      const tpl = resolveTemplateForSlide(templateSet, role);
+      return {
+        headline: "",
+        body: "",
+        bullets: role === "insight" ? [""] : undefined,
+        role,
+        template: tpl,
+        templateHint: tpl,
+      };
+    });
   }
-  const tpl = format === "story" ? "story_cover" : "wave_cover";
+  const tpl = format === "story" ? "story_cover" : resolveTemplateForSlide(templateSet, "cover");
   return [{ headline: "", body: "", template: tpl, templateHint: tpl, role: "cover" }];
 }
 
@@ -158,7 +154,7 @@ export default function ManualStudioEditor() {
 
   // ── Reset slides when format changes ──
   useEffect(() => {
-    setSlides(getDefaultSlides(selectedFormat));
+    setSlides(getDefaultSlides(selectedFormat, resolvedTs?.template_set));
     setCurrentSlide(0);
   }, [selectedFormat]);
 
@@ -187,24 +183,14 @@ export default function ManualStudioEditor() {
     visual_signature: null,
   };
 
-  // Apply template set templates to slides
+  // Apply template set templates to slides — uses resolveTemplateForSlide for deterministic mapping
   useEffect(() => {
-    if (resolvedTs?.template_set?.formats) {
-      const fmt = resolvedTs.template_set.formats[selectedFormat];
-      if (fmt?.role_to_template && selectedFormat === "carousel") {
-        setSlides(prev => prev.map(s => ({
-          ...s,
-          template: fmt.role_to_template[s.role || "context"] || s.template,
-          templateHint: fmt.role_to_template[s.role || "context"] || s.templateHint,
-        })));
-      } else if (fmt?.recommended_templates?.[0]) {
-        setSlides(prev => prev.map((s, i) => ({
-          ...s,
-          template: i === 0 ? fmt.recommended_templates[0] : (fmt.recommended_templates[1] || fmt.recommended_templates[0]),
-          templateHint: i === 0 ? fmt.recommended_templates[0] : (fmt.recommended_templates[1] || fmt.recommended_templates[0]),
-        })));
-      }
-    }
+    const ts = resolvedTs?.template_set || null;
+    setSlides(prev => prev.map(s => {
+      const role = s.role || "content";
+      const tpl = resolveTemplateForSlide(ts, role);
+      return { ...s, template: tpl, templateHint: tpl };
+    }));
   }, [resolvedTsId, selectedFormat]);
 
   // ── Slide editing ──
