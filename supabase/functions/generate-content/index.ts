@@ -340,6 +340,37 @@ function buildImagePromptForSlide(basePrompt: string, tokens: BrandTokens | null
   ].join(" ");
 }
 
+// ══════ DERIVE TEMPLATES BY ROLE FROM VISUAL SIGNATURE ══════
+
+function deriveTemplatesByRoleFromSignature(visualSignature: any): Record<string, string> {
+  const tv = visualSignature?.theme_variant || "";
+  
+  if (tv.includes("editorial") || tv.includes("dark")) {
+    return {
+      cover: "editorial_cover",
+      context: "editorial_text",
+      content: "editorial_text",
+      insight: "editorial_bullets",
+      bullets: "editorial_bullets",
+      quote: "editorial_quote",
+      question: "editorial_question",
+      closing: "editorial_cta",
+      cta: "editorial_cta",
+    };
+  }
+  return {
+    cover: "wave_cover",
+    context: "wave_text_card",
+    content: "wave_text_card",
+    insight: "wave_bullets",
+    bullets: "wave_bullets",
+    quote: "wave_text_card",
+    question: "wave_text_card",
+    closing: "wave_closing",
+    cta: "wave_closing",
+  };
+}
+
 // ══════ MAIN ══════
 
 serve(async (req) => {
@@ -559,17 +590,19 @@ ${brandContext}`;
       ? `Cada slide TEM um papel (role): ${slideRoles.join(", ")}.\nEstrutura: ${styleConfig.structure}`
       : `1 slide com role "cover".`;
 
-    // Build template assignments using role_to_template from the template set
-    const roleToTemplate = (formatConfig as any)?.role_to_template as Record<string, string> | undefined;
+    // Build template assignments using templates_by_role (primary) or role_to_template (fallback)
+    const templatesByRole = (activeStyleGuide as any)?.templates_by_role as Record<string, string> | undefined;
+    const roleToTemplate = templatesByRole || (formatConfig as any)?.role_to_template as Record<string, string> | undefined;
+    
+    // If neither exists, derive from visual_signature
+    const effectiveRoleToTemplate = roleToTemplate || deriveTemplatesByRoleFromSignature((activeStyleGuide as any)?.visual_signature);
+    
     const templateAssignments = contentType === "carousel"
       ? slideRoles.map((role, i) => {
-          if (roleToTemplate && roleToTemplate[role]) {
-            return `Slide ${i + 1} (${role}): template="${roleToTemplate[role]}"`;
-          }
-          const tpl = i === 0 ? templatePool[0] : i === totalSlides - 1 ? (templatePool[templatePool.length - 1] || templatePool[0]) : (templatePool[Math.min(i, templatePool.length - 1)] || templatePool[1] || templatePool[0]);
+          const tpl = effectiveRoleToTemplate[role] || effectiveRoleToTemplate["content"] || templatePool[Math.min(i, templatePool.length - 1)];
           return `Slide ${i + 1} (${role}): template="${tpl}"`;
         }).join("\n")
-      : `Template: ${templatePool[0]}.`;
+      : `Template: ${effectiveRoleToTemplate["cover"] || templatePool[0]}.`;
 
     const userPrompt = `Crie um ${formatLabel} do Instagram.
 ESTILO: ${contentStyle.toUpperCase()}
@@ -672,10 +705,8 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
       let template: string;
       if (effectiveMode === "free") {
         template = "generic_free";
-      } else if (roleToTemplate && roleToTemplate[role]) {
-        template = roleToTemplate[role];
       } else {
-        template = slide.template || templatePool[Math.min(i, templatePool.length - 1)];
+        template = effectiveRoleToTemplate[role] || effectiveRoleToTemplate["content"] || slide.template || templatePool[Math.min(i, templatePool.length - 1)];
       }
 
       return {
@@ -693,7 +724,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
 
     // ══════ ENFORCE CTA SLIDE ══════
     if (contentType === "carousel" && effectiveIncludeCta) {
-      const ctaTemplate = (formatConfig as any)?.cta_templates?.[0] || (roleToTemplate?.closing) || "wave_closing";
+      const ctaTemplate = effectiveRoleToTemplate["cta"] || effectiveRoleToTemplate["closing"] || "wave_closing";
       const ctaSlide = {
         role: "cta",
         template: ctaTemplate,

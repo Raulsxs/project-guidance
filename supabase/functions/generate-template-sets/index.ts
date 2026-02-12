@@ -112,6 +112,9 @@ serve(async (req) => {
           .eq("category_id", cat.id)
           .eq("status", "active");
 
+        // Derive templates_by_role from visual_signature
+        const templatesByRole = deriveTemplatesByRole(result.visual_signature);
+
         const { data: inserted, error: insertError } = await supabase
           .from("brand_template_sets")
           .insert({
@@ -128,6 +131,7 @@ serve(async (req) => {
               formats: result.formats,
               notes: result.notes || [],
               visual_signature: result.visual_signature || null,
+              templates_by_role: templatesByRole,
             },
           })
           .select()
@@ -138,7 +142,7 @@ serve(async (req) => {
           continue;
         }
         insertedSets.push(inserted);
-        console.log(`[generate-template-sets] Created set "${cat.name}" with visual_signature: ${JSON.stringify(result.visual_signature)}`);
+        console.log(`[generate-template-sets] Created set "${cat.name}" templates_by_role: ${JSON.stringify(templatesByRole)}`);
       }
 
       // Update brand metadata
@@ -228,6 +232,7 @@ serve(async (req) => {
 
     const insertedSets: any[] = [];
     for (const ts of templateSets) {
+      const templatesByRole = deriveTemplatesByRole(ts.visual_signature);
       const { data: inserted, error: insertError } = await supabase
         .from("brand_template_sets")
         .insert({
@@ -242,6 +247,7 @@ serve(async (req) => {
             formats: ts.formats,
             notes: ts.notes || [],
             visual_signature: ts.visual_signature || null,
+            templates_by_role: templatesByRole,
           },
         })
         .select()
@@ -445,6 +451,38 @@ IMPORTANTE:
     console.error(`[generate-template-sets] Parse error for "${cat.name}":`, e);
     return null;
   }
+}
+
+// ══════ DERIVE TEMPLATES BY ROLE ══════
+
+function deriveTemplatesByRole(visualSignature: any): Record<string, string> {
+  const tv = visualSignature?.theme_variant || "";
+  
+  if (tv.includes("editorial") || tv.includes("dark")) {
+    return {
+      cover: "editorial_cover",
+      context: "editorial_text",
+      content: "editorial_text",
+      insight: "editorial_bullets",
+      bullets: "editorial_bullets",
+      quote: "editorial_quote",
+      question: "editorial_question",
+      closing: "editorial_cta",
+      cta: "editorial_cta",
+    };
+  }
+  // Default: wave/clinical/light
+  return {
+    cover: "wave_cover",
+    context: "wave_text_card",
+    content: "wave_text_card",
+    insight: "wave_bullets",
+    bullets: "wave_bullets",
+    quote: "wave_text_card",
+    question: "wave_text_card",
+    closing: "wave_closing",
+    cta: "wave_closing",
+  };
 }
 
 // ══════ LEGACY PROMPTS ══════
