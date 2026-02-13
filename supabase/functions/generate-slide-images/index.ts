@@ -148,10 +148,10 @@ serve(async (req) => {
       });
     }
 
-    // Build prompt
+    // Build prompt (articleUrl is intentionally NOT passed to avoid URLs in image)
     const prompt = buildPrompt(
       slide, slideIndex || 0, totalSlides || 1,
-      brandInfo, articleUrl, articleContent, contentFormat,
+      brandInfo, undefined, articleContent, contentFormat,
       rules, visualSignature, templateSetName,
     );
     contentParts.push({ type: "text", text: prompt });
@@ -237,6 +237,30 @@ serve(async (req) => {
   }
 });
 
+// ══════ HELPERS ══════
+
+/** Strip URLs, domains, and internal metadata from text before sending to AI */
+function sanitizeText(text: string): string {
+  if (!text) return "";
+  return text
+    // Remove full URLs
+    .replace(/https?:\/\/[^\s)]+/gi, "")
+    // Remove www. domains
+    .replace(/www\.[^\s)]+/gi, "")
+    // Remove utm_ params remnants
+    .replace(/utm_[a-z_]+=\S*/gi, "")
+    // Remove bare domains (.com, .br, .org etc)
+    .replace(/\b\S+\.(com|br|org|net|io|dev|app|biz|info)\b/gi, "")
+    // Remove internal metadata labels
+    .replace(/Estilo\/Pilar:\s*"?[^"\n]+"?/gi, "")
+    .replace(/Template(Set)?Id:\s*\S+/gi, "")
+    .replace(/Role:\s*\S+/gi, "")
+    .replace(/SetId:\s*\S+/gi, "")
+    // Clean up extra whitespace
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // ══════ PROMPT BUILDER ══════
 
 function buildPrompt(
@@ -251,9 +275,9 @@ function buildPrompt(
   visualSignature?: any,
   templateSetName?: string | null,
 ): string {
-  const headline = slide.headline || "";
-  const body = slide.body || "";
-  const bullets = slide.bullets || [];
+  const headline = sanitizeText(slide.headline || "");
+  const body = sanitizeText(slide.body || "");
+  const bullets = (slide.bullets || []).map((b: string) => sanitizeText(b));
 
   const textParts: string[] = [];
   if (headline) textParts.push(headline);
@@ -261,8 +285,9 @@ function buildPrompt(
   if (bullets.length > 0) textParts.push(bullets.join("\n"));
 
   const slideText = textParts.join("\n\n");
-  const articleRef = articleUrl ? `\nArtigo fonte: ${articleUrl}` : "";
-  const articleSnippet = articleContent ? `\n${articleContent.substring(0, 600)}` : "";
+
+  // Sanitize article content — remove raw URLs, keep only clean text
+  const articleSnippet = articleContent ? sanitizeText(articleContent.substring(0, 600)) : "";
 
   // Build style constraints from rules/visual_signature
   let styleConstraints = "";
@@ -282,21 +307,26 @@ function buildPrompt(
     styleConstraints = parts.length > 0 ? `\n\nREGRAS DE ESTILO (obrigatórias):\n${parts.join("\n")}` : "";
   }
 
-  const pilarLabel = templateSetName ? `\nEstilo/Pilar: "${templateSetName}"` : "";
-
   return `Crie o slide ${slideIndex + 1} de ${totalSlides} de um carrossel de Instagram sobre este conteúdo, seguindo EXATAMENTE o mesmo estilo visual das imagens de referência anexadas.
 
 Texto do slide (em PT-BR, escreva exatamente como está):
 ${slideText}
-${articleRef}${articleSnippet}
-${pilarLabel}${styleConstraints}
+${articleSnippet ? `\nContexto adicional:\n${articleSnippet}` : ""}
+${styleConstraints}
 
 REGRAS OBRIGATÓRIAS:
 - Replique EXATAMENTE o estilo, layout, cores, tipografia e elementos das referências.
 - O texto DEVE estar em português do Brasil, correto e natural. NÃO traduza para inglês.
 - Respeite a "safe area": não corte texto nas bordas. Margem mínima de 60px.
 - O slide deve ter formato portrait (4:5, 1080x1350px).
-- Use APENAS referências do mesmo estilo visual — não misture com outros estilos.`;
+- Use APENAS referências do mesmo estilo visual — não misture com outros estilos.
+
+PROIBIÇÕES ABSOLUTAS (nunca faça isto):
+- NUNCA inclua URLs, links, domínios, endereços web ou QR codes na imagem.
+- NUNCA escreva nomes de sites (ex: "radiologybusiness.com", "fonte: www...").
+- NUNCA inclua metadados como "Estilo/Pilar:", "Template:", "Role:", "SetId:" na imagem.
+- NUNCA inclua @handles de redes sociais inventados.
+- O ÚNICO texto permitido na imagem é o headline, body e bullets fornecidos acima.`;
 }
 
 // ══════ STORAGE UPLOAD ══════
