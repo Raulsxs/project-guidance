@@ -266,55 +266,135 @@ const ContentPreview = () => {
 
   const handleGeneratePreview = async (index: number) => {
     const slide = slides[index];
-    if (!slide.imagePrompt) {
-      toast.error("Este slide não tem um prompt de imagem definido");
+    const brandId = (content as any)?.brand_id;
+
+    if (!brandId) {
+      // Fallback for free mode — use generic generate-image
+      if (!slide.imagePrompt) {
+        toast.error("Este slide não tem um prompt de imagem definido");
+        return;
+      }
+      setGeneratingPreview(true);
+      setCurrentSlide(index);
+      try {
+        const { data, error } = await supabase.functions.invoke("generate-image", {
+          body: { prompt: slide.imagePrompt, style: `professional healthcare marketing for Instagram` },
+        });
+        if (error) throw error;
+        if (data.imageUrl) {
+          const updatedSlides = [...slides];
+          updatedSlides[index] = { ...updatedSlides[index], previewImage: data.imageUrl };
+          setSlides(updatedSlides);
+          toast.success("Preview gerado com sucesso!");
+        }
+      } catch (error) {
+        console.error("Error generating preview:", error);
+        toast.error("Erro ao gerar preview", { description: error instanceof Error ? error.message : "Tente novamente" });
+      } finally {
+        setGeneratingPreview(false);
+      }
       return;
     }
 
+    // Brand mode — use generate-slide-images (same as Studio)
     setGeneratingPreview(true);
     setCurrentSlide(index);
-
     try {
-      const { data, error } = await supabase.functions.invoke("generate-image", {
-        body: { 
-          prompt: slide.imagePrompt,
-          style: `professional healthcare marketing for Instagram, ${templates[selectedTemplate].name} style`
+      const templateSetId = (content as any)?.template_set_id || undefined;
+      const { data, error } = await supabase.functions.invoke("generate-slide-images", {
+        body: {
+          brandId,
+          slide,
+          slideIndex: index,
+          totalSlides: slides.length,
+          contentFormat: content?.content_type || "carousel",
+          contentId: `dashboard-${id}-${Date.now()}`,
+          templateSetId,
         },
       });
-
       if (error) throw error;
-
-      if (data.imageUrl) {
+      if (data?.imageUrl) {
         const updatedSlides = [...slides];
-        updatedSlides[index] = {
-          ...updatedSlides[index],
-          previewImage: data.imageUrl,
-        };
+        updatedSlides[index] = { ...updatedSlides[index], previewImage: data.imageUrl };
         setSlides(updatedSlides);
-        toast.success("Preview gerado com sucesso!");
+        // Persist to DB
+        if (id) {
+          await supabase.from("generated_contents").update({ slides: JSON.parse(JSON.stringify(updatedSlides)) }).eq("id", id);
+        }
+        toast.success("Imagem gerada com sucesso!");
       }
     } catch (error) {
       console.error("Error generating preview:", error);
-      toast.error("Erro ao gerar preview", {
-        description: error instanceof Error ? error.message : "Tente novamente",
-      });
+      toast.error("Erro ao gerar preview", { description: error instanceof Error ? error.message : "Tente novamente" });
     } finally {
       setGeneratingPreview(false);
     }
   };
 
   const handleGenerateAllPreviews = async () => {
+    const brandId = (content as any)?.brand_id;
     setGeneratingPreview(true);
-    
-    for (let i = 0; i < slides.length; i++) {
-      if (slides[i].imagePrompt && !slides[i].previewImage) {
-        setCurrentSlide(i);
-        await handleGeneratePreviewSingle(i);
+
+    if (brandId) {
+      // Brand mode — batch with generate-slide-images (same as Studio)
+      const templateSetId = (content as any)?.template_set_id || undefined;
+      const contentId = `dashboard-${id}-${Date.now()}`;
+      let completedCount = 0;
+      const batchSize = 2;
+
+      for (let batch = 0; batch < slides.length; batch += batchSize) {
+        const batchSlides = slides.slice(batch, batch + batchSize);
+        const batchPromises = batchSlides.map((s, batchIdx) => {
+          const i = batch + batchIdx;
+          return supabase.functions.invoke("generate-slide-images", {
+            body: {
+              brandId,
+              slide: s,
+              slideIndex: i,
+              totalSlides: slides.length,
+              contentFormat: content?.content_type || "carousel",
+              contentId,
+              templateSetId,
+            },
+          }).then(result => {
+            completedCount++;
+            if (result.data?.imageUrl) {
+              setSlides(prev => prev.map((sl, idx) =>
+                idx === i ? { ...sl, previewImage: result.data.imageUrl } : sl
+              ));
+            }
+            return { index: i, data: result.data, error: result.error };
+          });
+        });
+
+        await Promise.allSettled(batchPromises);
+
+        if (batch + batchSize < slides.length) {
+          await new Promise(r => setTimeout(r, 1500));
+        }
       }
+
+      // Persist all updated slides to DB
+      setSlides(prev => {
+        if (id) {
+          supabase.from("generated_contents").update({ slides: JSON.parse(JSON.stringify(prev)) }).eq("id", id);
+        }
+        return prev;
+      });
+
+      toast.success(`${completedCount} imagens geradas!`);
+    } else {
+      // Free mode — fallback to old generic method
+      for (let i = 0; i < slides.length; i++) {
+        if (slides[i].imagePrompt && !slides[i].previewImage) {
+          setCurrentSlide(i);
+          await handleGeneratePreviewSingle(i);
+        }
+      }
+      toast.success("Todos os previews gerados!");
     }
-    
+
     setGeneratingPreview(false);
-    toast.success("Todos os previews gerados!");
   };
 
   const handleGeneratePreviewSingle = async (index: number) => {
@@ -323,14 +403,9 @@ const ContentPreview = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke("generate-image", {
-        body: { 
-          prompt: slide.imagePrompt,
-          style: `professional healthcare marketing for Instagram, ${templates[selectedTemplate].name} style`
-        },
+        body: { prompt: slide.imagePrompt, style: `professional healthcare marketing for Instagram` },
       });
-
       if (error) throw error;
-
       if (data.imageUrl) {
         setSlides(prev => {
           const updated = [...prev];

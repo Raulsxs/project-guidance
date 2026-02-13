@@ -360,9 +360,53 @@ const Dashboard = () => {
 
       if (saveError) throw saveError;
 
-      toast.success("Conteúdo gerado com sucesso!", {
-        description: "Você será redirecionado para o preview.",
-      });
+      // ══════ STEP 2: Generate slide images (same pipeline as Studio) ══════
+      if (brandId && data.content.slides?.length > 0) {
+        toast.success("Texto gerado! Gerando imagens dos slides...");
+        const contentId = `dashboard-${savedContent.id}`;
+        const generatedSlides = data.content.slides;
+        const batchSize = 2;
+
+        for (let batch = 0; batch < generatedSlides.length; batch += batchSize) {
+          const batchSlides = generatedSlides.slice(batch, batch + batchSize);
+          const batchPromises = batchSlides.map((s: any, batchIdx: number) => {
+            const i = batch + batchIdx;
+            return supabase.functions.invoke("generate-slide-images", {
+              body: {
+                brandId,
+                slide: s,
+                slideIndex: i,
+                totalSlides: generatedSlides.length,
+                contentFormat: format,
+                articleUrl: selectedTrend?.sourceUrl || undefined,
+                articleContent: selectedTrend?.fullContent || "",
+                contentId,
+                templateSetId: templateSetId || undefined,
+              },
+            }).then(result => {
+              if (result.data?.imageUrl) {
+                generatedSlides[i] = { ...generatedSlides[i], previewImage: result.data.imageUrl };
+              }
+              return result;
+            });
+          });
+
+          await Promise.allSettled(batchPromises);
+          if (batch + batchSize < generatedSlides.length) {
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        }
+
+        // Persist slides with images to DB
+        await supabase.from("generated_contents")
+          .update({ slides: JSON.parse(JSON.stringify(generatedSlides)) })
+          .eq("id", savedContent.id);
+
+        const imgCount = generatedSlides.filter((s: any) => s.previewImage).length;
+        toast.success(`Conteúdo gerado com ${imgCount} imagens!`);
+      } else {
+        toast.success("Conteúdo gerado com sucesso!");
+      }
 
       // Navigate to content preview
       navigate(`/content/${savedContent.id}`);
