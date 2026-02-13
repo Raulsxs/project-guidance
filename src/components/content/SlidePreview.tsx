@@ -9,6 +9,9 @@ interface Slide {
   imagePrompt?: string;
   illustrationPrompt?: string;
   previewImage?: string;
+  imageUrl?: string;
+  image_url?: string;
+  image?: string;
   templateHint?: string;
   template?: string;
   role?: string;
@@ -32,7 +35,8 @@ const SlidePreview = ({
   generatingImage,
 }: SlidePreviewProps) => {
   const slide = slides[currentSlide];
-  const hasImage = slide?.previewImage;
+  const imageSrc = slide?.previewImage || slide?.imageUrl || slide?.image_url || slide?.image;
+  const hasImage = !!imageSrc;
   const isFirst = currentSlide === 0;
   const isLast = currentSlide === slides.length - 1;
 
@@ -58,7 +62,7 @@ const SlidePreview = ({
               <div className="absolute inset-0">
                 {hasImage ? (
                   <img 
-                    src={slide.previewImage} 
+                    src={imageSrc} 
                     alt="Preview" 
                     className="w-full h-full object-cover"
                   />
@@ -75,8 +79,8 @@ const SlidePreview = ({
                 )}
               </div>
 
-              {/* Overlay */}
-              <div className={cn("absolute inset-0", template.overlayStyle)} />
+              {/* Overlay - only when no image */}
+              {!hasImage && <div className={cn("absolute inset-0", template.overlayStyle)} />}
 
               {/* Content Layer */}
               <div className="relative z-10 w-full h-full flex flex-col p-5">
