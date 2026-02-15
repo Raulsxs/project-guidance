@@ -68,7 +68,7 @@ const ScheduleModal = ({ open, onClose, onSchedule, isScheduling }: ScheduleModa
               onSelect={setSelectedDate}
               disabled={isDateDisabled}
               locale={ptBR}
-              className="rounded-md border"
+              className="rounded-md border pointer-events-auto"
             />
           </div>
 

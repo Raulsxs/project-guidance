@@ -11,6 +11,7 @@ import {
   LogOut,
   Sparkles,
   Wand2,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OnboardingTrigger from "@/components/onboarding/OnboardingTrigger";
@@ -18,6 +19,7 @@ import OnboardingTrigger from "@/components/onboarding/OnboardingTrigger";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
   { icon: Wand2, label: "Studio IA", href: "/studio" },
+  { icon: CalendarDays, label: "Calendário", href: "/calendar" },
   { icon: FileText, label: "Meus Conteúdos", href: "/contents" },
   { icon: Palette, label: "Brand Kit", href: "/brands" },
   { icon: Sparkles, label: "Templates", href: "/templates" },
