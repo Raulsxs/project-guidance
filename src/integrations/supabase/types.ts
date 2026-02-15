@@ -264,6 +264,7 @@ export type Database = {
           image_urls: string[] | null
           include_cta: boolean | null
           key_insights: string[] | null
+          published_at: string | null
           scheduled_at: string | null
           slide_count: number | null
           slides: Json | null
@@ -287,6 +288,7 @@ export type Database = {
           image_urls?: string[] | null
           include_cta?: boolean | null
           key_insights?: string[] | null
+          published_at?: string | null
           scheduled_at?: string | null
           slide_count?: number | null
           slides?: Json | null
@@ -310,6 +312,7 @@ export type Database = {
           image_urls?: string[] | null
           include_cta?: boolean | null
           key_insights?: string[] | null
+          published_at?: string | null
           scheduled_at?: string | null
           slide_count?: number | null
           slides?: Json | null

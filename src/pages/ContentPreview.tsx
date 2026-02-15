@@ -23,7 +23,18 @@ import {
   Loader2,
   Wand2,
   CalendarClock,
+  Download,
+  RotateCcw,
+  MoreHorizontal,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface Slide {
   headline: string;
@@ -59,6 +70,7 @@ interface GeneratedContent {
   content_type: string;
   trend_id: string | null;
   status: string;
+  scheduled_at: string | null;
   brand_snapshot: BrandSnapshotData | null;
   visual_mode?: string;
   source_summary?: string;
@@ -114,11 +126,54 @@ const ContentPreview = () => {
     fetchContent();
   }, [id, navigate]);
 
-  const handleApprove = () => {
-    toast.success("Conteúdo aprovado!", {
-      description: "Você pode baixar as imagens agora.",
-    });
-    navigate(`/download/${id}`);
+  const handleApprove = async () => {
+    if (!id) return;
+    try {
+      await supabase
+        .from("generated_contents")
+        .update({ status: "approved" })
+        .eq("id", id);
+      setContent(prev => prev ? { ...prev, status: "approved" } : null);
+      toast.success("Conteúdo aprovado!", {
+        description: "Quer agendar agora?",
+        action: {
+          label: "Agendar",
+          onClick: () => setIsScheduleModalOpen(true),
+        },
+      });
+    } catch (error) {
+      console.error("Error approving:", error);
+      toast.error("Erro ao aprovar");
+    }
+  };
+
+  const handleApproveAndDownload = async () => {
+    if (!id) return;
+    try {
+      await supabase
+        .from("generated_contents")
+        .update({ status: "approved" })
+        .eq("id", id);
+      setContent(prev => prev ? { ...prev, status: "approved" } : null);
+      toast.success("Conteúdo aprovado!");
+      navigate(`/download/${id}`);
+    } catch (error) {
+      toast.error("Erro ao aprovar");
+    }
+  };
+
+  const handleReopen = async () => {
+    if (!id) return;
+    try {
+      await supabase
+        .from("generated_contents")
+        .update({ status: "draft", scheduled_at: null })
+        .eq("id", id);
+      setContent(prev => prev ? { ...prev, status: "draft", scheduled_at: null } : null);
+      toast.success("Conteúdo reaberto para edição");
+    } catch (error) {
+      toast.error("Erro ao reabrir");
+    }
   };
 
   const handleReject = async () => {
@@ -215,6 +270,7 @@ const ContentPreview = () => {
 
       if (error) throw error;
 
+      setContent(prev => prev ? { ...prev, status: "scheduled", scheduled_at: scheduledDate.toISOString() } : null);
       toast.success("Conteúdo agendado!", {
         description: `Publicação agendada para ${scheduledDate.toLocaleString("pt-BR")}`,
       });
@@ -650,37 +706,106 @@ const ContentPreview = () => {
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions - Status-aware */}
         <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-border">
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={handleReject}
-          >
-            <X className="w-4 h-4" />
-            Rejeitar
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => setIsRegenerateModalOpen(true)}
-          >
-            <RefreshCw className="w-4 h-4" />
-            Regenerar Tudo
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => setIsScheduleModalOpen(true)}
-          >
-            <CalendarClock className="w-4 h-4" />
-            Agendar
-          </Button>
-          <div className="flex-1" />
-          <Button className="gap-2" onClick={handleApprove}>
-            <Check className="w-4 h-4" />
-            Aprovar e Baixar
-          </Button>
+          {content.status === "draft" && (
+            <>
+              <Button className="gap-2" onClick={handleApprove}>
+                <Check className="w-4 h-4" />
+                Aprovar
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setIsScheduleModalOpen(true)}
+              >
+                <CalendarClock className="w-4 h-4" />
+                Agendar
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setIsRegenerateModalOpen(true)}
+              >
+                <RefreshCw className="w-4 h-4" />
+                Regenerar Tudo
+              </Button>
+              <div className="flex-1" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleApproveAndDownload}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Aprovar e Baixar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleReject} className="text-destructive">
+                    <X className="w-4 h-4 mr-2" />
+                    Rejeitar
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+
+          {content.status === "approved" && (
+            <>
+              <Button className="gap-2" onClick={() => navigate(`/download/${id}`)}>
+                <Download className="w-4 h-4" />
+                Baixar Agora
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setIsScheduleModalOpen(true)}
+              >
+                <CalendarClock className="w-4 h-4" />
+                Agendar
+              </Button>
+              <div className="flex-1" />
+              <Button
+                variant="ghost"
+                className="gap-2 text-muted-foreground"
+                onClick={handleReopen}
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reabrir para Edição
+              </Button>
+            </>
+          )}
+
+          {content.status === "scheduled" && (
+            <>
+              <Badge className="bg-primary/15 text-primary border-primary/30 px-3 py-2 text-sm self-center">
+                <CalendarClock className="w-4 h-4 mr-1.5" />
+                Agendado para {content.scheduled_at ? format(new Date(content.scheduled_at), "dd/MM 'às' HH:mm", { locale: ptBR }) : ""}
+              </Badge>
+              <Button className="gap-2" onClick={() => navigate(`/download/${id}`)}>
+                <Download className="w-4 h-4" />
+                Baixar Agora
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setIsScheduleModalOpen(true)}
+              >
+                <CalendarClock className="w-4 h-4" />
+                Editar Agendamento
+              </Button>
+              <div className="flex-1" />
+              <Button
+                variant="ghost"
+                className="gap-2 text-muted-foreground"
+                onClick={handleReopen}
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reabrir para Edição
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Regenerate Modal */}

@@ -122,6 +122,22 @@ const DownloadPage = () => {
     });
   }, [getDimensions]);
 
+  const handleApproveAndDownload = async () => {
+    if (!content || !id) return;
+    try {
+      await supabase
+        .from("generated_contents")
+        .update({ status: "approved" })
+        .eq("id", content.id);
+      setContent(prev => prev ? { ...prev, status: "approved" } : null);
+      toast.success("Conteúdo aprovado!");
+      // Now proceed to download
+      await handleDownload();
+    } catch (error) {
+      toast.error("Erro ao aprovar");
+    }
+  };
+
   const handleDownload = async () => {
     if (!content) return;
 
@@ -180,12 +196,14 @@ const DownloadPage = () => {
       setProgress(100);
       setProgressMessage("Download concluído!");
 
-      // Update status
-      await supabase
-        .from("generated_contents")
-        .update({ status: "approved" })
-        .eq("id", content.id);
-      setContent((prev) => (prev ? { ...prev, status: "approved" } : null));
+      // Update status to approved if not already
+      if (content.status === "draft") {
+        await supabase
+          .from("generated_contents")
+          .update({ status: "approved" })
+          .eq("id", content.id);
+        setContent((prev) => (prev ? { ...prev, status: "approved" } : null));
+      }
 
       toast.success("Download concluído!", { description: "ZIP com PNGs e legendas." });
     } catch (error) {
@@ -308,19 +326,40 @@ const DownloadPage = () => {
                 </div>
               )}
 
-              <Button className="w-full gap-2" size="lg" onClick={handleDownload} disabled={downloading}>
-                {downloading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Renderizando...
-                  </>
-                ) : (
-                  <>
-                    <DownloadIcon className="w-5 h-5" />
-                    Exportar PNG/ZIP
-                  </>
-                )}
-              </Button>
+              {content.status === "draft" ? (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 text-center">
+                    <p className="text-sm text-foreground font-medium">Aprove o conteúdo para baixar em alta qualidade.</p>
+                  </div>
+                  <Button className="w-full gap-2" size="lg" onClick={handleApproveAndDownload} disabled={downloading}>
+                    {downloading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Renderizando...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-5 h-5" />
+                        Aprovar e Baixar
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <Button className="w-full gap-2" size="lg" onClick={handleDownload} disabled={downloading}>
+                  {downloading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Renderizando...
+                    </>
+                  ) : (
+                    <>
+                      <DownloadIcon className="w-5 h-5" />
+                      Exportar PNG/ZIP
+                    </>
+                  )}
+                </Button>
+              )}
             </CardContent>
           </Card>
 
