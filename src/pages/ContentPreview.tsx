@@ -41,9 +41,10 @@ interface Slide {
   body: string;
   imagePrompt?: string;
   illustrationPrompt?: string;
+  image_url?: string;
+  // Legacy fields - normalized to image_url on load
   previewImage?: string;
   imageUrl?: string;
-  image_url?: string;
   image?: string;
   templateHint?: string;
   template?: string;
@@ -107,12 +108,16 @@ const ContentPreview = () => {
         if (error) throw error;
 
         setContent(data as unknown as GeneratedContent);
-        // Normalize slides: ensure previewImage is always populated from any image field
+        // Normalize slides: image_url is the single source of truth
         const rawSlides = (data.slides as unknown) as Slide[];
-        const normalizedSlides = (rawSlides || []).map(s => ({
-          ...s,
-          previewImage: s.previewImage || s.imageUrl || s.image_url || s.image || undefined,
-        }));
+        const normalizedSlides = (rawSlides || []).map(s => {
+          const imgUrl = s.image_url || s.previewImage || s.imageUrl || s.image || undefined;
+          return {
+            ...s,
+            image_url: imgUrl,
+            previewImage: imgUrl, // keep for backward compat
+          };
+        });
         setSlides(normalizedSlides);
       } catch (error) {
         console.error("Error fetching content:", error);
@@ -285,11 +290,14 @@ const ContentPreview = () => {
 
   const handleSaveEdit = async (index: number, headline: string, body: string, imagePrompt: string) => {
     const updatedSlides = [...slides];
+    // Merge: preserve image_url from existing slide
     updatedSlides[index] = {
       ...updatedSlides[index],
       headline,
       body,
       imagePrompt,
+      image_url: updatedSlides[index].image_url, // preserve!
+      previewImage: updatedSlides[index].image_url, // sync
     };
     setSlides(updatedSlides);
     setEditingSlide(null);
@@ -313,6 +321,7 @@ const ContentPreview = () => {
     const updatedSlides = [...slides];
     updatedSlides[index] = {
       ...updatedSlides[index],
+      image_url: imageUrl,
       previewImage: imageUrl,
     };
     setSlides(updatedSlides);
@@ -337,9 +346,9 @@ const ContentPreview = () => {
           body: { prompt: slide.imagePrompt, style: `professional healthcare marketing for Instagram` },
         });
         if (error) throw error;
-        if (data.imageUrl) {
+      if (data.imageUrl) {
           const updatedSlides = [...slides];
-          updatedSlides[index] = { ...updatedSlides[index], previewImage: data.imageUrl };
+          updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl };
           setSlides(updatedSlides);
           toast.success("Preview gerado com sucesso!");
         }
@@ -371,7 +380,7 @@ const ContentPreview = () => {
       if (error) throw error;
       if (data?.imageUrl) {
         const updatedSlides = [...slides];
-        updatedSlides[index] = { ...updatedSlides[index], previewImage: data.imageUrl };
+        updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl };
         setSlides(updatedSlides);
         // Persist to DB
         if (id) {
@@ -416,7 +425,7 @@ const ContentPreview = () => {
             completedCount++;
             if (result.data?.imageUrl) {
               setSlides(prev => prev.map((sl, idx) =>
-                idx === i ? { ...sl, previewImage: result.data.imageUrl } : sl
+                idx === i ? { ...sl, image_url: result.data.imageUrl, previewImage: result.data.imageUrl } : sl
               ));
             }
             return { index: i, data: result.data, error: result.error };
@@ -465,7 +474,7 @@ const ContentPreview = () => {
       if (data.imageUrl) {
         setSlides(prev => {
           const updated = [...prev];
-          updated[index] = { ...updated[index], previewImage: data.imageUrl };
+          updated[index] = { ...updated[index], image_url: data.imageUrl, previewImage: data.imageUrl };
           return updated;
         });
       }
@@ -495,7 +504,7 @@ const ContentPreview = () => {
     );
   }
 
-  const previewCount = slides.filter(s => s.previewImage || s.imageUrl || s.image_url || s.image).length;
+  const previewCount = slides.filter(s => s.image_url).length;
 
   return (
     <DashboardLayout>
@@ -595,7 +604,7 @@ const ContentPreview = () => {
             </div>
 
             {(() => {
-              const currentSlideSrc = slides[currentSlide]?.previewImage || slides[currentSlide]?.imageUrl || slides[currentSlide]?.image_url || slides[currentSlide]?.image;
+              const currentSlideSrc = slides[currentSlide]?.image_url;
 
               // If there's a generated image, show it directly (no scale transform = crisp)
               if (currentSlideSrc) {

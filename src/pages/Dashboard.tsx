@@ -385,7 +385,7 @@ const Dashboard = () => {
               },
             }).then(result => {
               if (result.data?.imageUrl) {
-                generatedSlides[i] = { ...generatedSlides[i], previewImage: result.data.imageUrl };
+                generatedSlides[i] = { ...generatedSlides[i], image_url: result.data.imageUrl, previewImage: result.data.imageUrl };
               }
               return result;
             });
@@ -402,7 +402,7 @@ const Dashboard = () => {
           .update({ slides: JSON.parse(JSON.stringify(generatedSlides)) })
           .eq("id", savedContent.id);
 
-        const imgCount = generatedSlides.filter((s: any) => s.previewImage).length;
+        const imgCount = generatedSlides.filter((s: any) => s.image_url || s.previewImage).length;
         toast.success(`Conteúdo gerado com ${imgCount} imagens!`);
       } else {
         toast.success("Conteúdo gerado com sucesso!");

@@ -233,18 +233,19 @@ function getAutoSlideCount(
 ): number {
   // Template set defines a range - use it as bounds
   const range = formatConfig?.slide_count_range as [number, number] | undefined;
-  const min = range?.[0] || 4;
-  const max = range?.[1] || 10;
+  // E) Enforce minimum 6 for carousel auto mode
+  const min = Math.max(range?.[0] || 6, 6);
+  const max = Math.min(range?.[1] || 9, 10);
 
   // Base count by content style
   const styleRanges: Record<string, [number, number]> = {
-    tip: [4, 6],
-    quote: [4, 5],
-    news: [6, 8],
-    educational: [6, 8],
-    curiosity: [5, 7],
+    tip: [6, 7],
+    quote: [6, 7],
+    news: [7, 9],
+    educational: [7, 9],
+    curiosity: [6, 8],
   };
-  const [styleMin, styleMax] = styleRanges[contentStyle] || [5, 7];
+  const [styleMin, styleMax] = styleRanges[contentStyle] || [6, 8];
 
   // Heuristic based on text length
   let estimated: number;
@@ -522,9 +523,9 @@ serve(async (req) => {
     // Calculate text length for auto slide count estimation
     const textLength = (trend.fullContent || "").length + (trend.description || "").length + (manualBriefing?.body || "").length + (manualBriefing?.notes || "").length;
     
-    // resolveSlideCount returns the number of CONTENT slides (excluding CTA)
+    // E) resolveSlideCount returns total CONTENT slides (NOT including CTA)
     const contentSlideCount = resolveSlideCount(contentType, requestedSlideCount, formatConfig, contentStyle, textLength);
-    // Total = content + optional CTA
+    // Total = content + optional CTA (CTA is ALWAYS an additional slide, never counted as content)
     const totalSlides = contentType === "carousel" && effectiveIncludeCta ? contentSlideCount + 1 : contentSlideCount;
     
     const textLimits = getTextLimits(activeStyleGuide, contentType);
@@ -800,6 +801,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
             const imageUrl = imgData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
             if (imageUrl) {
               processedSlides[i].previewImage = imageUrl;
+              processedSlides[i].image_url = imageUrl; // A) source of truth
               console.log(`[generate-content] Background image generated for slide ${i + 1}`);
             }
           } else {

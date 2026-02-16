@@ -49,7 +49,8 @@ interface SlideData {
   template?: string;
   role?: string;
   templateHint?: string;
-  previewImage?: string;
+  image_url?: string;
+  previewImage?: string; // legacy compat
   speakerNotes?: string;
   illustrationPrompt?: string;
   imagePrompt?: string;
@@ -399,7 +400,7 @@ export default function ManualStudioEditor() {
                 setImageGenProgress(`Gerando imagens ${completedCount}/${newSlides.length}...`);
                 if (result.data?.imageUrl) {
                   setSlides(prev => prev.map((sl, idx) =>
-                    idx === i ? { ...sl, previewImage: result.data.imageUrl } : sl
+                    idx === i ? { ...sl, image_url: result.data.imageUrl, previewImage: result.data.imageUrl } : sl
                   ));
                 }
                 return { index: i, data: result.data, error: result.error };
@@ -462,6 +463,7 @@ export default function ManualStudioEditor() {
       if (data?.imageUrl) {
         setSlides(prev => prev.map((s, i) => ({
           ...s,
+          image_url: i === index ? data.imageUrl : s.image_url,
           previewImage: i === index ? data.imageUrl : s.previewImage,
         })));
         toast.success("Imagem regenerada!");
@@ -824,9 +826,9 @@ export default function ManualStudioEditor() {
                 style={{ aspectRatio: selectedFormat === "story" ? "9/16" : "4/5" }}
               >
                 {/* Show AI-generated image if available, otherwise fallback to template renderer */}
-                {slide?.previewImage ? (
+                {(slide?.image_url || slide?.previewImage) ? (
                   <img
-                    src={slide.previewImage}
+                    src={slide.image_url || slide.previewImage}
                     alt={`Slide ${currentSlide + 1}`}
                     className="w-full h-full object-cover"
                   />
@@ -869,7 +871,7 @@ export default function ManualStudioEditor() {
                 ) : (
                   <Wand2 className="w-3.5 h-3.5" />
                 )}
-                {slide?.previewImage ? "Regenerar imagem" : "Gerar imagem"}
+                {(slide?.image_url || slide?.previewImage) ? "Regenerar imagem" : "Gerar imagem"}
               </Button>
             )}
 
