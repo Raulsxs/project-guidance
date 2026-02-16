@@ -132,6 +132,17 @@ serve(async (req) => {
     const fallbackLabels = ["exact_category", "category_any_type", "brand_wide"];
     console.log(`[generate-slide-images] Slide ${(slideIndex || 0) + 1}/${totalSlides || "?"}, refs=${referenceImageUrls.length}, fallback=${fallbackLabels[fallbackLevel]}, templateSet="${templateSetName || 'none'}", categoryId=${resolvedCategoryId || 'none'}`);
 
+    // F) If template set was selected but no references found, return error
+    if (templateSetId && referenceImageUrls.length === 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Sem exemplos de referência para o estilo "${templateSetName || 'selecionado'}". Cadastre pelo menos 3 exemplos neste pilar/formato.`,
+        debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: 0, fallbackLevel: "none" },
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ══════ EXTRACT STYLE GUIDE FROM TEMPLATE SET ══════
     const styleGuide = templateSetData?.template_set?.layout_params || null;
     const rules = templateSetData?.template_set?.rules || null;
@@ -279,15 +290,27 @@ function buildPrompt(
   const body = sanitizeText(slide.body || "");
   const bullets = (slide.bullets || []).map((b: string) => sanitizeText(b));
 
+  // D) Se body for longo, resumir automaticamente
+  const MAX_BODY_CHARS = 180;
+  const truncatedBody = body.length > MAX_BODY_CHARS
+    ? body.substring(0, MAX_BODY_CHARS).replace(/\s+\S*$/, "…")
+    : body;
+
+  // Headline max 2 lines (~80 chars)
+  const MAX_HEADLINE_CHARS = 80;
+  const truncatedHeadline = headline.length > MAX_HEADLINE_CHARS
+    ? headline.substring(0, MAX_HEADLINE_CHARS).replace(/\s+\S*$/, "…")
+    : headline;
+
   const textParts: string[] = [];
-  if (headline) textParts.push(headline);
-  if (body) textParts.push(body);
-  if (bullets.length > 0) textParts.push(bullets.join("\n"));
+  if (truncatedHeadline) textParts.push(truncatedHeadline);
+  if (truncatedBody) textParts.push(truncatedBody);
+  if (bullets.length > 0) textParts.push(bullets.slice(0, 5).join("\n"));
 
   const slideText = textParts.join("\n\n");
 
-  // Sanitize article content — remove raw URLs, keep only clean text
-  const articleSnippet = articleContent ? sanitizeText(articleContent.substring(0, 600)) : "";
+  // Sanitize article content
+  const articleSnippet = articleContent ? sanitizeText(articleContent.substring(0, 400)) : "";
 
   // Build style constraints from rules/visual_signature
   let styleConstraints = "";
@@ -309,24 +332,31 @@ function buildPrompt(
 
   return `Crie o slide ${slideIndex + 1} de ${totalSlides} de um carrossel de Instagram sobre este conteúdo, seguindo EXATAMENTE o mesmo estilo visual das imagens de referência anexadas.
 
-Texto do slide (em PT-BR, escreva exatamente como está):
+Texto do slide (em PT-BR, escreva exatamente como está, com acentos e ortografia corretos):
 ${slideText}
 ${articleSnippet ? `\nContexto adicional:\n${articleSnippet}` : ""}
 ${styleConstraints}
 
 REGRAS OBRIGATÓRIAS:
-- Replique EXATAMENTE o estilo, layout, cores, tipografia e elementos das referências.
-- O texto DEVE estar em português do Brasil, correto e natural. NÃO traduza para inglês.
-- Respeite a "safe area": não corte texto nas bordas. Margem mínima de 60px.
-- O slide deve ter formato portrait (4:5, 1080x1350px).
+- Replique EXATAMENTE o estilo, layout, cores, tipografia, mockups, cards, faixas, shapes e elementos estruturais das referências.
+- O texto DEVE estar em português do Brasil com acentos corretos (á, é, í, ó, ú, ã, õ, ç). NUNCA troque acentos por caracteres estranhos.
+- Headline: máximo 2 linhas de texto.
+- Body: se for longo, resuma mantendo o sentido — nunca corte no meio de uma palavra.
+- Safe area OBRIGATÓRIA: margem mínima de 80px em TODAS as bordas. NENHUM texto pode ser cortado.
+- O slide deve ter formato portrait (4:5, 1080×1350px).
 - Use APENAS referências do mesmo estilo visual — não misture com outros estilos.
+- Consistência de série: mantenha a mesma família tipográfica, estilo de layout, margens e detalhes ao longo de todos os slides do carrossel.
+- Se as referências incluem mockup de celular, cards, faixas, ondas ou shapes decorativos, REPLIQUE esses elementos.
 
-PROIBIÇÕES ABSOLUTAS (nunca faça isto):
-- NUNCA inclua URLs, links, domínios, endereços web ou QR codes na imagem.
-- NUNCA escreva nomes de sites (ex: "radiologybusiness.com", "fonte: www...").
-- NUNCA inclua metadados como "Estilo/Pilar:", "Template:", "Role:", "SetId:" na imagem.
+PROIBIÇÕES ABSOLUTAS (violar qualquer uma é INACEITÁVEL):
+- NUNCA inclua URLs, links, domínios, endereços web, QR codes ou nomes de sites.
+- NUNCA escreva "Artigo fonte", "Fonte:", "www.", ".com", ".br" ou qualquer referência a sites.
+- NUNCA inclua metadados como "Estilo/Pilar:", "Template:", "Role:", "SetId:", "TemplateSetId:" na imagem.
 - NUNCA inclua @handles de redes sociais inventados.
-- O ÚNICO texto permitido na imagem é o headline, body e bullets fornecidos acima.`;
+- NUNCA inclua texto em inglês — TODO texto deve ser em português.
+- O ÚNICO texto permitido na imagem é o headline, body e bullets fornecidos acima.
+
+Responda APENAS com a imagem gerada. Sem texto adicional fora da arte.`;
 }
 
 // ══════ STORAGE UPLOAD ══════

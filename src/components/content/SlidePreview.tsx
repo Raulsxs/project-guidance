@@ -35,7 +35,7 @@ const SlidePreview = ({
   generatingImage,
 }: SlidePreviewProps) => {
   const slide = slides[currentSlide];
-  const imageSrc = slide?.previewImage || slide?.imageUrl || slide?.image_url || slide?.image;
+  const imageSrc = slide?.image_url || slide?.previewImage || slide?.imageUrl || slide?.image_url || slide?.image;
   const hasImage = !!imageSrc;
   const isFirst = currentSlide === 0;
   const isLast = currentSlide === slides.length - 1;

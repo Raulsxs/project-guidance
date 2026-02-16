@@ -25,6 +25,7 @@ interface Slide {
   body: string;
   imagePrompt?: string;
   illustrationPrompt?: string;
+  image_url?: string;
   previewImage?: string;
   templateHint?: string;
   template?: string;
@@ -78,7 +79,14 @@ const DownloadPage = () => {
           .eq("id", id)
           .single();
         if (error) throw error;
-        setContent(data as unknown as GeneratedContent);
+        // Normalize slides to ensure image_url is populated
+        const rawContent = data as unknown as GeneratedContent;
+        rawContent.slides = (rawContent.slides || []).map(s => ({
+          ...s,
+          image_url: s.image_url || s.previewImage || undefined,
+          previewImage: s.image_url || s.previewImage || undefined,
+        }));
+        setContent(rawContent);
       } catch (error) {
         console.error("Error fetching content:", error);
         toast.error("Erro ao carregar conteúdo");
@@ -98,9 +106,25 @@ const DownloadPage = () => {
   }, [content]);
 
   const captureSlide = useCallback(async (index: number): Promise<Blob> => {
+    const slide = content?.slides[index];
+    const imgUrl = slide?.image_url || slide?.previewImage;
+    
+    // If we have an AI-generated image, download it directly as blob (pixel-perfect)
+    if (imgUrl && imgUrl.startsWith("http")) {
+      try {
+        const res = await fetch(imgUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          return blob;
+        }
+      } catch (e) {
+        console.warn(`[Download] Could not fetch image for slide ${index}, falling back to template render`);
+      }
+    }
+
+    // Fallback: render via html-to-image
     return new Promise((resolve, reject) => {
       setRenderIndex(index);
-      // Wait for render
       setTimeout(async () => {
         try {
           if (!renderRef.current) throw new Error("Render container not found");
@@ -120,7 +144,7 @@ const DownloadPage = () => {
         }
       }, 500);
     });
-  }, [getDimensions]);
+  }, [content, getDimensions]);
 
   const handleApproveAndDownload = async () => {
     if (!content || !id) return;
