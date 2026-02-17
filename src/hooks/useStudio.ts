@@ -11,10 +11,10 @@ export function useBrands() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       
+      // RLS now handles shared brands automatically
       const { data, error } = await supabase
         .from('brands')
         .select('*')
-        .eq('owner_user_id', user.id)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
