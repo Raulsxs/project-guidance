@@ -284,6 +284,30 @@ export type Database = {
           },
         ]
       }
+      favorite_template_sets: {
+        Row: {
+          created_at: string
+          id: string
+          template_set_id: string
+          template_set_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          template_set_id: string
+          template_set_type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          template_set_id?: string
+          template_set_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       generated_contents: {
         Row: {
           brand_id: string | null
@@ -806,6 +830,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_template_sets: {
+        Row: {
+          category: string
+          content_format: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          preview_colors: Json | null
+          sort_order: number
+          template_set: Json
+        }
+        Insert: {
+          category?: string
+          content_format?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          preview_colors?: Json | null
+          sort_order?: number
+          template_set?: Json
+        }
+        Update: {
+          category?: string
+          content_format?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          preview_colors?: Json | null
+          sort_order?: number
+          template_set?: Json
+        }
+        Relationships: []
       }
       trends: {
         Row: {
