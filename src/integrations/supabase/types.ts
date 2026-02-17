@@ -538,6 +538,12 @@ export type Database = {
           full_name: string | null
           id: string
           instagram_handle: string | null
+          interest_areas: string[] | null
+          native_language: string
+          preferred_audience: string
+          preferred_tone: string
+          rss_sources: string[] | null
+          secondary_languages: string[] | null
           updated_at: string
           user_id: string
         }
@@ -548,6 +554,12 @@ export type Database = {
           full_name?: string | null
           id?: string
           instagram_handle?: string | null
+          interest_areas?: string[] | null
+          native_language?: string
+          preferred_audience?: string
+          preferred_tone?: string
+          rss_sources?: string[] | null
+          secondary_languages?: string[] | null
           updated_at?: string
           user_id: string
         }
@@ -558,6 +570,12 @@ export type Database = {
           full_name?: string | null
           id?: string
           instagram_handle?: string | null
+          interest_areas?: string[] | null
+          native_language?: string
+          preferred_audience?: string
+          preferred_tone?: string
+          rss_sources?: string[] | null
+          secondary_languages?: string[] | null
           updated_at?: string
           user_id?: string
         }

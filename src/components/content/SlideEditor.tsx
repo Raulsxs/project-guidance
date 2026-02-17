@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { Edit2, Image, Wand2, Check, X, Sparkles, Type, FileText, ImagePlus, Upload } from "lucide-react";
+import { Edit2, Image, Wand2, Check, X, Sparkles, Type, FileText, ImagePlus, Upload, AlertTriangle } from "lucide-react";
 import ImagePicker from "./ImagePicker";
 import ImageUpload from "./ImageUpload";
 
@@ -22,6 +22,7 @@ interface Slide {
   role?: string;
   bullets?: string[];
   speakerNotes?: string;
+  image_stale?: boolean;
 }
 
 interface SlideEditorProps {
@@ -142,6 +143,12 @@ const SlideEditor = ({
                       <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
                         <Image className="w-3 h-3 mr-1" />
                         Imagem
+                      </Badge>
+                    )}
+                    {slide.image_stale && (
+                      <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        Desatualizada
                       </Badge>
                     )}
                   </div>
