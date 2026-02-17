@@ -113,6 +113,8 @@ export default function StyleGallery() {
   const [userId, setUserId] = useState<string | null>(null);
   const [previewFormat, setPreviewFormat] = useState<string>("post");
   const [generatingPack, setGeneratingPack] = useState<string | null>(null);
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [generatingAllProgress, setGeneratingAllProgress] = useState({ current: 0, total: 0, currentName: "" });
 
   useEffect(() => {
     const load = async () => {
@@ -133,6 +135,13 @@ export default function StyleGallery() {
     };
     load();
   }, []);
+
+  const getPreviewImages = (t: SystemTemplate): string[] => {
+    const pi = t.preview_images;
+    if (!pi || typeof pi !== "object") return [];
+    const formatImages = pi[previewFormat] || pi["post"] || pi["carousel"] || pi["story"];
+    return Array.isArray(formatImages) ? formatImages : [];
+  };
 
   const isFavorite = (type: string, id: string) => favorites.some(f => f.template_set_type === type && f.template_set_id === id);
 
@@ -161,14 +170,9 @@ export default function StyleGallery() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      // Update local state with new images
       setSystemTemplates(prev => prev.map(t => {
         if (t.id === styleId) {
-          return {
-            ...t,
-            reference_images: data.referenceImages || {},
-            preview_images: data.previewImages || {},
-          };
+          return { ...t, reference_images: data.referenceImages || {}, preview_images: data.previewImages || {} };
         }
         return t;
       }));
@@ -180,6 +184,57 @@ export default function StyleGallery() {
     } finally {
       setGeneratingPack(null);
     }
+  };
+
+  const handleGenerateAll = async () => {
+    const stylesWithoutPreviews = systemTemplates.filter(t => {
+      const imgs = getPreviewImages(t);
+      return imgs.length === 0;
+    });
+
+    if (stylesWithoutPreviews.length === 0) {
+      toast.info("Todos os estilos já possuem previews!");
+      return;
+    }
+
+    setGeneratingAll(true);
+    setGeneratingAllProgress({ current: 0, total: stylesWithoutPreviews.length, currentName: "" });
+
+    let successCount = 0;
+    for (let i = 0; i < stylesWithoutPreviews.length; i++) {
+      const style = stylesWithoutPreviews[i];
+      setGeneratingAllProgress({ current: i + 1, total: stylesWithoutPreviews.length, currentName: style.name });
+      setGeneratingPack(style.id);
+
+      try {
+        const formats = style.supported_formats || ["post"];
+        const { data, error } = await supabase.functions.invoke("generate-style-pack", {
+          body: { styleId: style.id, formats },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        setSystemTemplates(prev => prev.map(t => {
+          if (t.id === style.id) {
+            return { ...t, reference_images: data.referenceImages || {}, preview_images: data.previewImages || {} };
+          }
+          return t;
+        }));
+        successCount++;
+      } catch (e) {
+        console.error(`Error generating pack for "${style.name}":`, e);
+        toast.error(`Falha em "${style.name}": ${e instanceof Error ? e.message : "erro"}`);
+      }
+
+      setGeneratingPack(null);
+      // Delay between styles to avoid rate limits
+      if (i < stylesWithoutPreviews.length - 1) {
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+
+    setGeneratingAll(false);
+    toast.success(`${successCount}/${stylesWithoutPreviews.length} estilos gerados com sucesso!`);
   };
 
   const filterBySearch = (name: string, desc: string | null) => {
@@ -202,13 +257,7 @@ export default function StyleGallery() {
     );
   }
 
-  const getPreviewImages = (t: SystemTemplate): string[] => {
-    const pi = t.preview_images;
-    if (!pi || typeof pi !== "object") return [];
-    // Try current format, then fallback to any available
-    const formatImages = pi[previewFormat] || pi["post"] || pi["carousel"] || pi["story"];
-    return Array.isArray(formatImages) ? formatImages : [];
-  };
+
 
   const renderSystemCard = (t: SystemTemplate) => {
     const FormatIcon = FORMAT_ICONS[t.content_format || "post"] || Square;
@@ -313,7 +362,27 @@ export default function StyleGallery() {
             </h1>
             <p className="text-muted-foreground mt-1">Explore e favorite estilos visuais para usar na geração de conteúdo</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Generate All Button */}
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleGenerateAll}
+              disabled={generatingAll || !!generatingPack}
+            >
+              {generatingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {generatingAllProgress.current}/{generatingAllProgress.total} — {generatingAllProgress.currentName}
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4" />
+                  Gerar todos os previews
+                </>
+              )}
+            </Button>
             {/* Format filter for previews */}
             <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
               {(["post", "story", "carousel"] as const).map(f => {
