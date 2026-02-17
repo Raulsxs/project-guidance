@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import { normalizeSlides, buildContentDraftKey } from "@/lib/slideUtils";
+import { useDraft } from "@/hooks/useDraft";
+import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
+import DraftRestoreModal from "@/components/content/DraftRestoreModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +98,27 @@ const ContentPreview = () => {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
 
+  // Draft persistence for content editor
+  const draftKey = id ? buildContentDraftKey(id) : null;
+  const { pendingDraft, restoreDraft, discardDraft, saveToDraft, hasUnsavedChanges } = useDraft({
+    draftKey,
+    enabled: !!id,
+  });
+  useUnsavedChangesGuard(hasUnsavedChanges);
+
+  // Auto-save draft when slides change
+  useEffect(() => {
+    if (!content || slides.length === 0) return;
+    saveToDraft({ slides, caption: content.caption, hashtags: content.hashtags, title: content.title });
+  }, [slides, content?.caption, content?.hashtags, content?.title, saveToDraft]);
+
+  const handleRestoreContentDraft = useCallback(() => {
+    const draft = restoreDraft();
+    if (!draft) return;
+    if (draft.slides) setSlides(normalizeSlides(draft.slides as Slide[]));
+    toast.success("Rascunho restaurado!");
+  }, [restoreDraft]);
+
   useEffect(() => {
     const fetchContent = async () => {
       if (!id) return;
@@ -110,15 +135,7 @@ const ContentPreview = () => {
         setContent(data as unknown as GeneratedContent);
         // Normalize slides: image_url is the single source of truth
         const rawSlides = (data.slides as unknown) as Slide[];
-        const normalizedSlides = (rawSlides || []).map(s => {
-          const imgUrl = s.image_url || s.previewImage || s.imageUrl || s.image || undefined;
-          return {
-            ...s,
-            image_url: imgUrl,
-            previewImage: imgUrl, // keep for backward compat
-          };
-        });
-        setSlides(normalizedSlides);
+        setSlides(normalizeSlides(rawSlides));
       } catch (error) {
         console.error("Error fetching content:", error);
         toast.error("Erro ao carregar conteúdo");
@@ -508,6 +525,13 @@ const ContentPreview = () => {
 
   return (
     <DashboardLayout>
+      {/* Draft Restore Modal */}
+      <DraftRestoreModal
+        open={!!pendingDraft}
+        savedAt={pendingDraft?.savedAt || 0}
+        onRestore={handleRestoreContentDraft}
+        onDiscard={discardDraft}
+      />
       <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center gap-4">

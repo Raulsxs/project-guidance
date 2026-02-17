@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import { normalizeSlideImage, buildStudioDraftKey } from "@/lib/slideUtils";
+import { useDraft } from "@/hooks/useDraft";
+import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
+import DraftRestoreModal from "@/components/content/DraftRestoreModal";
 
 // ── Types ──
 
@@ -134,6 +138,7 @@ export default function ManualStudioEditor() {
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   // AI generation
   const [generating, setGenerating] = useState(false);
@@ -143,6 +148,13 @@ export default function ManualStudioEditor() {
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [sourceSummary, setSourceSummary] = useState("");
   const [keyInsights, setKeyInsights] = useState<string[]>([]);
+
+  // ── Get user ID ──
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) setUserId(data.user.id);
+    });
+  }, []);
 
   // ── Load brands ──
   useEffect(() => {
@@ -195,6 +207,54 @@ export default function ManualStudioEditor() {
   }, [activeTemplateSetData]);
 
   const effectiveSlideCount = slideCountMode === "fixed" ? slideCountVal : autoSlideCount;
+
+  // ── Draft persistence ──
+  const draftKey = useMemo(() => {
+    if (!userId) return null;
+    return buildStudioDraftKey(userId, selectedBrand, selectedTemplateSet, selectedFormat);
+  }, [userId, selectedBrand, selectedTemplateSet, selectedFormat]);
+
+  const { pendingDraft, restoreDraft, discardDraft, saveToDraft, hasUnsavedChanges, clear: clearDraftStorage } = useDraft({
+    draftKey,
+    enabled: !!userId,
+  });
+
+  useUnsavedChangesGuard(hasUnsavedChanges);
+
+  // Auto-save draft when content changes
+  const saveDraftDebounced = useCallback(() => {
+    if (!title.trim() && slides.every(s => !s.headline && !s.body)) return;
+    saveToDraft({
+      slides,
+      caption,
+      hashtags,
+      title,
+      notes,
+      config: { selectedStyle, slideCountMode, slideCountVal, includeCta },
+    });
+  }, [slides, caption, hashtags, title, notes, selectedStyle, slideCountMode, slideCountVal, includeCta, saveToDraft]);
+
+  useEffect(() => {
+    saveDraftDebounced();
+  }, [saveDraftDebounced]);
+
+  // Handle draft restore
+  const handleRestoreDraft = useCallback(() => {
+    const draft = restoreDraft();
+    if (!draft) return;
+    if (draft.slides) setSlides(draft.slides);
+    if (draft.caption) setCaption(draft.caption);
+    if (draft.hashtags) setHashtags(draft.hashtags);
+    if (draft.title) setTitle(draft.title);
+    if (draft.notes) setNotes(draft.notes ?? "");
+    if (draft.config) {
+      if (draft.config.selectedStyle) setSelectedStyle(draft.config.selectedStyle);
+      if (draft.config.slideCountMode) setSlideCountMode(draft.config.slideCountMode);
+      if (draft.config.slideCountVal) setSlideCountVal(draft.config.slideCountVal);
+      if (draft.config.includeCta !== undefined) setIncludeCta(draft.config.includeCta);
+    }
+    toast.success("Rascunho restaurado!");
+  }, [restoreDraft]);
 
   // ── Rebuild slides when format/count/CTA/template set changes ──
   useEffect(() => {
@@ -319,18 +379,19 @@ export default function ManualStudioEditor() {
           const role = s.role || "cover";
           // HARD LOCK: Use templates_by_role from template set first
           const tpl = tbr?.[role] || resolveTemplateForSlide(activeTemplateSetData, role);
-          return {
+          return normalizeSlideImage({
             headline: s.headline || "",
             body: s.body || "",
             bullets: s.bullets || undefined,
             template: tpl,
             templateHint: tpl,
             role,
-            previewImage: s.previewImage || undefined,
+            image_url: s.image_url || s.previewImage || undefined,
+            previewImage: s.image_url || s.previewImage || undefined,
             speakerNotes: s.speakerNotes || "",
             illustrationPrompt: s.illustrationPrompt || "",
             imagePrompt: s.imagePrompt || "",
-          };
+          });
         });
 
         // Enforce CTA slide
@@ -511,6 +572,7 @@ export default function ManualStudioEditor() {
         .single();
 
       if (error) throw error;
+      clearDraftStorage();
       toast.success("Rascunho salvo!");
       navigate(`/content/${data.id}`);
     } catch (err: any) {
@@ -534,6 +596,14 @@ export default function ManualStudioEditor() {
 
   return (
     <div className="space-y-6">
+      {/* Draft Restore Modal */}
+      <DraftRestoreModal
+        open={!!pendingDraft}
+        savedAt={pendingDraft?.savedAt || 0}
+        onRestore={handleRestoreDraft}
+        onDiscard={discardDraft}
+      />
+
       {/* Config Bar */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="space-y-1.5">

@@ -15,6 +15,7 @@ interface Slide {
   body: string;
   imagePrompt?: string;
   illustrationPrompt?: string;
+  image_url?: string;
   previewImage?: string;
   templateHint?: string;
   template?: string;
@@ -137,7 +138,7 @@ const SlideEditor = ({
                     >
                       {getSlideLabel(index)}
                     </Badge>
-                    {slide.previewImage && (
+                    {(slide.image_url || slide.previewImage) && (
                       <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
                         <Image className="w-3 h-3 mr-1" />
                         Imagem
@@ -213,11 +214,11 @@ const SlideEditor = ({
                 </div>
 
                 {/* Preview thumbnail if has image */}
-                {slide.previewImage && (
+                {(slide.image_url || slide.previewImage) && (
                   <div className="mb-3 rounded-lg overflow-hidden aspect-video relative group/thumb">
                     <img 
-                      src={slide.previewImage} 
-                      alt="Preview" 
+                      src={slide.image_url || slide.previewImage} 
+                      alt="Preview"
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -305,7 +306,7 @@ const SlideEditor = ({
                     <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
                       {slide.body}
                     </p>
-                    {slide.imagePrompt && !slide.previewImage && (
+                    {slide.imagePrompt && !slide.image_url && !slide.previewImage && (
                       <div className="flex items-start gap-2 mt-3 p-2.5 rounded-lg bg-violet-500/5 border border-violet-500/10">
                         <Sparkles className="w-3.5 h-3.5 text-violet-500 mt-0.5 flex-shrink-0" />
                         <p className="text-xs text-violet-600 dark:text-violet-400 line-clamp-2">

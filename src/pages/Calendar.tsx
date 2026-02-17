@@ -114,12 +114,12 @@ const Calendar = () => {
       const { data: scheduledData } = await scheduledQuery;
       setContents((scheduledData as unknown as CalendarContent[]) || []);
 
-      // Backlog: approved without scheduled_at
+      // Backlog: approved without scheduled_at (NOT drafts)
       let backlogQuery = supabase
         .from("generated_contents")
         .select("id, title, content_type, status, scheduled_at, created_at, brand_id, template_set_id, slides, caption, brand_snapshot")
         .eq("user_id", user.id)
-        .in("status", ["approved", "draft"])
+        .eq("status", "approved")
         .is("scheduled_at", null)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -258,7 +258,7 @@ const Calendar = () => {
   };
 
   const ContentCard = ({ item, isDraggable = true }: { item: CalendarContent; isDraggable?: boolean }) => {
-    const firstSlideImage = item.slides?.[0]?.previewImage || item.slides?.[0]?.imageUrl || item.slides?.[0]?.image_url;
+    const firstSlideImage = item.slides?.[0]?.image_url || item.slides?.[0]?.previewImage || item.slides?.[0]?.imageUrl;
     return (
       <div
         draggable={isDraggable}
