@@ -6,6 +6,54 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const ALLOWED_THEMES = ["Tecnologia", "Gestão", "Inovação", "Sustentabilidade", "RH", "Finanças", "Qualidade"];
+
+// Strip HTML tags and control characters from text
+function stripHtml(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, "")           // Remove HTML tags
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "") // Remove control chars (keep \n \r \t)
+    .trim();
+}
+
+// Validate URL is http/https
+function isValidUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Sanitize a trend data object
+function sanitizeTrend(trend: TrendData): TrendData | null {
+  const title = stripHtml(trend.title || "");
+  const description = stripHtml(trend.description || "");
+  const sourceUrl = trend.source_url || "";
+
+  if (!title || !isValidUrl(sourceUrl)) return null;
+
+  const theme = ALLOWED_THEMES.includes(trend.theme) ? trend.theme : "Gestão";
+  const keywords = (trend.keywords || [])
+    .filter((k): k is string => typeof k === "string")
+    .map((k) => stripHtml(k).substring(0, 50))
+    .slice(0, 5);
+  const score = typeof trend.relevance_score === "number"
+    ? Math.max(0, Math.min(100, Math.round(trend.relevance_score)))
+    : 50;
+
+  return {
+    title: title.substring(0, 255),
+    description: description.substring(0, 500),
+    source: stripHtml(trend.source || "").substring(0, 100),
+    source_url: sourceUrl,
+    theme,
+    keywords,
+    relevance_score: score,
+  };
+}
+
 // Health sector news sources to scrape
 const HEALTH_SOURCES = [
   {
@@ -196,9 +244,15 @@ serve(async (req) => {
       }
     }
 
-    // Insert new trends into database
+    // Insert new trends into database (sanitized)
     let insertedCount = 0;
-    for (const trend of allTrends) {
+    for (const raw of allTrends) {
+      const trend = sanitizeTrend(raw);
+      if (!trend) {
+        console.warn("Skipped invalid trend:", raw.title?.substring(0, 40));
+        continue;
+      }
+
       // Check if trend already exists (by source_url)
       const { data: existing } = await supabase
         .from("trends")
@@ -208,8 +262,8 @@ serve(async (req) => {
 
       if (!existing) {
         const { error: insertError } = await supabase.from("trends").insert({
-          title: trend.title.substring(0, 255),
-          description: trend.description.substring(0, 500),
+          title: trend.title,
+          description: trend.description,
           source: trend.source,
           source_url: trend.source_url,
           theme: trend.theme,
@@ -217,7 +271,7 @@ serve(async (req) => {
           relevance_score: trend.relevance_score,
           is_active: true,
           scraped_at: new Date().toISOString(),
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         });
 
         if (insertError) {
