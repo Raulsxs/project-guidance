@@ -55,6 +55,7 @@ interface Slide {
   role?: string;
   bullets?: string[];
   speakerNotes?: string;
+  image_stale?: boolean;
 }
 
 interface BrandSnapshotData {
@@ -307,14 +308,19 @@ const ContentPreview = () => {
 
   const handleSaveEdit = async (index: number, headline: string, body: string, imagePrompt: string) => {
     const updatedSlides = [...slides];
-    // Merge: preserve image_url from existing slide
+    const existing = updatedSlides[index];
+    const textChanged = existing.headline !== headline || existing.body !== body;
+    const hasImage = !!existing.image_url;
+    
     updatedSlides[index] = {
-      ...updatedSlides[index],
+      ...existing,
       headline,
       body,
       imagePrompt,
-      image_url: updatedSlides[index].image_url, // preserve!
-      previewImage: updatedSlides[index].image_url, // sync
+      image_url: existing.image_url,
+      previewImage: existing.image_url,
+      // Mark stale if text changed and slide already has an AI image
+      image_stale: (textChanged && hasImage) ? true : existing.image_stale,
     };
     setSlides(updatedSlides);
     setEditingSlide(null);
@@ -326,7 +332,9 @@ const ContentPreview = () => {
           .update({ slides: JSON.parse(JSON.stringify(updatedSlides)) })
           .eq("id", id);
         
-        toast.success("Slide atualizado");
+        toast.success(textChanged && hasImage
+          ? "Slide atualizado — imagem precisa ser regenerada"
+          : "Slide atualizado");
       } catch (error) {
         console.error("Error updating slide:", error);
         toast.error("Erro ao salvar alterações");
@@ -365,7 +373,7 @@ const ContentPreview = () => {
         if (error) throw error;
       if (data.imageUrl) {
           const updatedSlides = [...slides];
-          updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl };
+          updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl, image_stale: false };
           setSlides(updatedSlides);
           toast.success("Preview gerado com sucesso!");
         }
@@ -397,7 +405,7 @@ const ContentPreview = () => {
       if (error) throw error;
       if (data?.imageUrl) {
         const updatedSlides = [...slides];
-        updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl };
+        updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl, image_stale: false };
         setSlides(updatedSlides);
         // Persist to DB
         if (id) {
