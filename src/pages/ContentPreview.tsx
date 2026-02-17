@@ -15,6 +15,7 @@ import { templates, TemplateStyle } from "@/lib/templates";
 import TemplateSelector from "@/components/content/TemplateSelector";
 import SlidePreview from "@/components/content/SlidePreview";
 import SlideEditor from "@/components/content/SlideEditor";
+import GenerationDebugPanel from "@/components/content/GenerationDebugPanel";
 import RegenerateModal from "@/components/content/RegenerateModal";
 import ScheduleModal from "@/components/content/ScheduleModal";
 import SlideTemplateRenderer, { getTemplateForSlide } from "@/components/content/SlideTemplateRenderer";
@@ -81,6 +82,7 @@ interface GeneratedContent {
   visual_mode?: string;
   source_summary?: string;
   key_insights?: string[];
+  generation_metadata?: Record<string, any> | null;
 }
 
 const ContentPreview = () => {
@@ -252,6 +254,7 @@ const ContentPreview = () => {
           caption: data.content.caption,
           hashtags: data.content.hashtags,
           slides: data.content.slides,
+          generation_metadata: data.content.generationMetadata || null,
         })
         .eq("id", id);
 
@@ -407,9 +410,33 @@ const ContentPreview = () => {
         const updatedSlides = [...slides];
         updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl, image_stale: false };
         setSlides(updatedSlides);
+        // Save image generation debug info to metadata
+        if (data?.debug) {
+          setContent(prev => {
+            if (!prev) return prev;
+            const meta = { ...(prev.generation_metadata || {}) };
+            const imageGens = [...(meta.image_generations || [])];
+            imageGens.push({
+              slideIndex: index,
+              image_model: data.debug.image_model || "google/gemini-2.5-flash-image",
+              image_generation_ms: data.debug.image_generation_ms,
+              references_used: data.debug.referencesUsedCount,
+              fallback_level: data.debug.fallbackLevel,
+              generated_at: data.debug.generated_at,
+            });
+            meta.image_generations = imageGens;
+            // Persist metadata
+            if (id) {
+              supabase.from("generated_contents").update({ generation_metadata: meta }).eq("id", id);
+            }
+            return { ...prev, generation_metadata: meta };
+          });
+        }
         // Persist to DB
         if (id) {
-          await supabase.from("generated_contents").update({ slides: JSON.parse(JSON.stringify(updatedSlides)) }).eq("id", id);
+          const updatedForDb = [...slides];
+          updatedForDb[index] = { ...updatedForDb[index], image_url: data.imageUrl, previewImage: data.imageUrl, image_stale: false };
+          await supabase.from("generated_contents").update({ slides: JSON.parse(JSON.stringify(updatedForDb)) }).eq("id", id);
         }
         toast.success("Imagem gerada com sucesso!");
       }
@@ -744,6 +771,9 @@ const ContentPreview = () => {
                 </CardContent>
               </Card>
             )}
+
+            {/* Debug Panel */}
+            <GenerationDebugPanel metadata={content.generation_metadata || null} />
           </div>
         </div>
 
