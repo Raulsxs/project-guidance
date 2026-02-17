@@ -385,6 +385,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const t0 = Date.now();
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -816,6 +817,19 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
     }
 
     // ══════ RESPONSE ══════
+    const generationMetadata = {
+      text_model: "google/gemini-2.5-pro",
+      text_generation_ms: Date.now() - t0,
+      slide_count: processedSlides.length,
+      content_style: contentStyle,
+      visual_mode: effectiveMode,
+      template_set_name: templateSetName || null,
+      template_set_id: resolvedTemplateSetId || null,
+      bg_style: bgStyle,
+      include_cta: effectiveIncludeCta,
+      generated_at: new Date().toISOString(),
+    };
+
     const result = {
       title: generated.title || trend.title,
       caption: generated.caption || "",
@@ -834,6 +848,7 @@ ${contentType === "carousel" ? `Crie EXATAMENTE ${totalSlides} slides com roles:
       templateSetName: templateSetName,
       slideCount: totalSlides,
       includeCta: effectiveIncludeCta,
+      generationMetadata,
       brandSnapshot: brandTokens ? {
         name: brandTokens.name,
         palette: brandTokens.palette,

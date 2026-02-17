@@ -348,6 +348,7 @@ const Dashboard = () => {
         template_set_id: data.content.templateSetId || null,
         slide_count: data.content.slideCount || null,
         include_cta: data.content.includeCta ?? true,
+        generation_metadata: data.content.generationMetadata || null,
       };
 
       console.log("[Dashboard] Inserting:", { brand_id: insertPayload.brand_id, visual_mode: insertPayload.visual_mode, palette: (insertPayload.brand_snapshot as any)?.palette?.length ?? 0 });

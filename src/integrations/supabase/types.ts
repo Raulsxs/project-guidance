@@ -315,6 +315,7 @@ export type Database = {
           caption: string | null
           content_type: string
           created_at: string
+          generation_metadata: Json | null
           hashtags: string[] | null
           id: string
           image_urls: string[] | null
@@ -339,6 +340,7 @@ export type Database = {
           caption?: string | null
           content_type: string
           created_at?: string
+          generation_metadata?: Json | null
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null
@@ -363,6 +365,7 @@ export type Database = {
           caption?: string | null
           content_type?: string
           created_at?: string
+          generation_metadata?: Json | null
           hashtags?: string[] | null
           id?: string
           image_urls?: string[] | null

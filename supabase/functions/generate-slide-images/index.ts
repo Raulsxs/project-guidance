@@ -11,6 +11,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const t0 = Date.now();
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -215,7 +216,14 @@ serve(async (req) => {
 
         return new Response(JSON.stringify({
           success: true, imageUrl,
-          debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel] },
+          debug: {
+            templateSetId, templateSetName, categoryId: resolvedCategoryId,
+            referencesUsedCount: referenceImageUrls.length, referenceExampleIds,
+            fallbackLevel: fallbackLabels[fallbackLevel],
+            image_model: "google/gemini-2.5-flash-image",
+            image_generation_ms: Date.now() - t0,
+            generated_at: new Date().toISOString(),
+          },
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
