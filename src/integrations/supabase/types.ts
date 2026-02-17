@@ -115,6 +115,38 @@ export type Database = {
           },
         ]
       }
+      brand_shares: {
+        Row: {
+          brand_id: string
+          created_at: string
+          id: string
+          permission: string
+          shared_with_user_id: string
+        }
+        Insert: {
+          brand_id: string
+          created_at?: string
+          id?: string
+          permission?: string
+          shared_with_user_id: string
+        }
+        Update: {
+          brand_id?: string
+          created_at?: string
+          id?: string
+          permission?: string
+          shared_with_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_shares_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       brand_template_sets: {
         Row: {
           brand_id: string
