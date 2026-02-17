@@ -12,7 +12,8 @@ import ContentPreview from "./pages/ContentPreview";
 import DownloadPage from "./pages/Download";
 import Contents from "./pages/Contents";
 import Profile from "./pages/Profile";
-import CustomTemplates from "./pages/CustomTemplates";
+import StyleGallery from "./pages/StyleGallery";
+import BrandWizard from "./pages/BrandWizard";
 import Studio from "./pages/Studio";
 import StudioProject from "./pages/StudioProject";
 import StudioPostEditor from "./pages/StudioPostEditor";
@@ -40,13 +41,15 @@ const App = () => (
             <Route path="/download/:id" element={<DownloadPage />} />
             <Route path="/contents" element={<Contents />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/templates" element={<CustomTemplates />} />
+            <Route path="/templates" element={<StyleGallery />} />
+            <Route path="/styles" element={<StyleGallery />} />
             <Route path="/studio" element={<Studio />} />
             <Route path="/studio/project/:id" element={<StudioProject />} />
             <Route path="/studio/post/:id" element={<StudioPostEditor />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/brands" element={<Brands />} />
-            <Route path="/brands/new" element={<BrandNew />} />
+            <Route path="/brands/new" element={<BrandWizard />} />
+            <Route path="/brands/new/simple" element={<BrandNew />} />
             <Route path="/brands/:id/edit" element={<BrandEdit />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

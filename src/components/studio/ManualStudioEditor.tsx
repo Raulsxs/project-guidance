@@ -23,6 +23,7 @@ import { normalizeSlideImage, buildStudioDraftKey } from "@/lib/slideUtils";
 import { useDraft } from "@/hooks/useDraft";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import DraftRestoreModal from "@/components/content/DraftRestoreModal";
+import BriefingImageUpload from "@/components/studio/BriefingImageUpload";
 
 // ── Types ──
 
@@ -148,6 +149,7 @@ export default function ManualStudioEditor() {
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [sourceSummary, setSourceSummary] = useState("");
   const [keyInsights, setKeyInsights] = useState<string[]>([]);
+  const [briefingImages, setBriefingImages] = useState<string[]>([]);
 
   // ── Get user ID ──
   useEffect(() => {
@@ -343,6 +345,7 @@ export default function ManualStudioEditor() {
         body: currentSlideData?.body || undefined,
         bullets: currentSlideData?.bullets?.filter(Boolean) || undefined,
         notes: notes || undefined,
+        briefingImages: briefingImages.length > 0 ? briefingImages : undefined,
       };
 
       const { data, error } = await supabase.functions.invoke("generate-content", {
@@ -455,6 +458,7 @@ export default function ManualStudioEditor() {
                   contentId,
                   templateSetId: resolvedTsId || undefined,
                   categoryId: resolvedTs?.category_id || undefined,
+                  briefingImages: briefingImages.length > 0 ? briefingImages : undefined,
                 },
               }).then(result => {
                 completedCount++;
@@ -731,6 +735,7 @@ export default function ManualStudioEditor() {
               rows={3}
             />
           </div>
+          <BriefingImageUpload images={briefingImages} onChange={setBriefingImages} />
         </div>
         <div className="lg:col-span-7 flex items-end">
           <Button

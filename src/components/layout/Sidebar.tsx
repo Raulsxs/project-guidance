@@ -22,7 +22,7 @@ const menuItems = [
   { icon: CalendarDays, label: "Calendário", href: "/calendar" },
   { icon: FileText, label: "Meus Conteúdos", href: "/contents" },
   { icon: Palette, label: "Brand Kit", href: "/brands" },
-  { icon: Sparkles, label: "Templates", href: "/templates" },
+  { icon: Sparkles, label: "Galeria de Estilos", href: "/styles" },
   { icon: User, label: "Meu Perfil", href: "/profile" },
 ];
 
