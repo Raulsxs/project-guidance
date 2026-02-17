@@ -28,6 +28,7 @@ import {
   Lock,
   Compass,
   Brush,
+  Star,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,6 +49,7 @@ interface GenerateContentModalProps {
     templateSetId: string | null,
     slideCount: number | null,
     includeCta: boolean,
+    styleGalleryId?: string | null,
   ) => void;
   isGenerating: boolean;
 }
@@ -57,6 +59,20 @@ interface TemplateSetOption {
   name: string;
   description: string | null;
   template_set: { formats?: Record<string, any> };
+}
+
+interface SystemStyleOption {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  preview_images: Record<string, string[]>;
+  supported_formats: string[];
+}
+
+interface FavoriteRecord {
+  template_set_type: string;
+  template_set_id: string;
 }
 
 const formats = [
@@ -134,8 +150,11 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
   const [selectedBrand, setSelectedBrand] = useState<string>("ai");
   const [selectedVisualMode, setSelectedVisualMode] = useState("brand_guided");
   const [selectedTemplateSet, setSelectedTemplateSet] = useState<string>("auto");
+  const [selectedSystemStyle, setSelectedSystemStyle] = useState<string | null>(null);
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [templateSets, setTemplateSets] = useState<TemplateSetOption[]>([]);
+  const [systemStyles, setSystemStyles] = useState<SystemStyleOption[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteRecord[]>([]);
   const [loadingBrands, setLoadingBrands] = useState(false);
 
   // Carousel controls
@@ -145,15 +164,25 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
 
   useEffect(() => {
     if (open) {
-      const fetchBrands = async () => {
+      const fetchData = async () => {
         setLoadingBrands(true);
         try {
-          const { data, error } = await supabase.from("brands").select("id, name, visual_tone, palette, default_template_set_id").order("name");
-          if (!error && data) setBrands(data as unknown as BrandOption[]);
-        } catch (e) { console.error("Error fetching brands:", e); }
+          const { data: session } = await supabase.auth.getSession();
+          const uid = session.session?.user?.id;
+
+          const [brandsRes, stylesRes, favsRes] = await Promise.all([
+            supabase.from("brands").select("id, name, visual_tone, palette, default_template_set_id").order("name"),
+            supabase.from("system_template_sets").select("id, name, description, category, preview_images, supported_formats").eq("is_active", true).order("sort_order"),
+            uid ? supabase.from("favorite_template_sets").select("template_set_type, template_set_id").eq("user_id", uid) : Promise.resolve({ data: [] }),
+          ]);
+
+          if (!brandsRes.error && brandsRes.data) setBrands(brandsRes.data as unknown as BrandOption[]);
+          if (!stylesRes.error && stylesRes.data) setSystemStyles(stylesRes.data as unknown as SystemStyleOption[]);
+          if (favsRes.data) setFavorites(favsRes.data as unknown as FavoriteRecord[]);
+        } catch (e) { console.error("Error fetching data:", e); }
         finally { setLoadingBrands(false); }
       };
-      fetchBrands();
+      fetchData();
     }
   }, [open]);
 
@@ -234,9 +263,17 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
         resolvedTemplateSetId,
         selectedFormat === "carousel" ? (slideCountMode === "auto" ? null : slideCount) : null,
         selectedFormat === "carousel" ? includeCta : true,
+        selectedSystemStyle,
       );
     }
   };
+
+  // Compute favorite system styles
+  const favoriteStyleIds = new Set(
+    favorites.filter(f => f.template_set_type === "system").map(f => f.template_set_id)
+  );
+  const favoriteStyles = systemStyles.filter(s => favoriteStyleIds.has(s.id));
+  const nonFavoriteStyles = systemStyles.filter(s => !favoriteStyleIds.has(s.id));
 
   const showVisualModes = selectedBrand !== "ai";
   const showCarouselControls = selectedFormat === "carousel";
@@ -326,7 +363,55 @@ const GenerateContentModal = ({ trend, open, onOpenChange, onGenerate, isGenerat
           )}
           </div>
 
-          {/* Visual Mode Selection - only when brand selected */}
+          {/* System Style Gallery Selection - when no brand or free mode */}
+          {systemStyles.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium">Estilo Visual da Galeria</Label>
+                <Star className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <Select value={selectedSystemStyle || "none"} onValueChange={v => setSelectedSystemStyle(v === "none" ? null : v)}>
+                <SelectTrigger><SelectValue placeholder="Sem estilo da galeria" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-muted-foreground" />
+                      <span>Nenhum (usar marca ou modo livre)</span>
+                    </div>
+                  </SelectItem>
+                  {favoriteStyles.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">⭐ Favoritos</div>
+                      {favoriteStyles.map(s => (
+                        <SelectItem key={s.id} value={s.id}>
+                          <div className="flex items-center gap-2">
+                            <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                            <span>{s.name}</span>
+                            <span className="text-[10px] text-muted-foreground">{s.category}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Todos</div>
+                    </>
+                  )}
+                  {nonFavoriteStyles.map(s => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-3 h-3 text-muted-foreground" />
+                        <span>{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground">{s.category}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedSystemStyle && (
+                <p className="text-xs text-muted-foreground">
+                  As imagens serão geradas seguindo as referências visuais do estilo "<span className="font-medium text-foreground">{systemStyles.find(s => s.id === selectedSystemStyle)?.name}</span>".
+                </p>
+              )}
+            </div>
+          )}
           {showVisualModes && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">

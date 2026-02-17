@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.generate-slide-images]
 verify_jwt = false
+
+[functions.generate-style-pack]
+verify_jwt = false

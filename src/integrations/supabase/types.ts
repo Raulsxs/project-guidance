@@ -568,6 +568,7 @@ export type Database = {
           interest_areas: string[] | null
           native_language: string
           preferred_audience: string
+          preferred_language: string
           preferred_tone: string
           rss_sources: string[] | null
           secondary_languages: string[] | null
@@ -584,6 +585,7 @@ export type Database = {
           interest_areas?: string[] | null
           native_language?: string
           preferred_audience?: string
+          preferred_language?: string
           preferred_tone?: string
           rss_sources?: string[] | null
           secondary_languages?: string[] | null
@@ -600,6 +602,7 @@ export type Database = {
           interest_areas?: string[] | null
           native_language?: string
           preferred_audience?: string
+          preferred_language?: string
           preferred_tone?: string
           rss_sources?: string[] | null
           secondary_languages?: string[] | null
@@ -842,9 +845,14 @@ export type Database = {
           description: string | null
           id: string
           is_active: boolean
+          is_native: boolean
           name: string
           preview_colors: Json | null
+          preview_images: Json | null
+          reference_images: Json | null
           sort_order: number
+          style_prompt: string | null
+          supported_formats: string[] | null
           template_set: Json
         }
         Insert: {
@@ -854,9 +862,14 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_native?: boolean
           name: string
           preview_colors?: Json | null
+          preview_images?: Json | null
+          reference_images?: Json | null
           sort_order?: number
+          style_prompt?: string | null
+          supported_formats?: string[] | null
           template_set?: Json
         }
         Update: {
@@ -866,9 +879,14 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_native?: boolean
           name?: string
           preview_colors?: Json | null
+          preview_images?: Json | null
+          reference_images?: Json | null
           sort_order?: number
+          style_prompt?: string | null
+          supported_formats?: string[] | null
           template_set?: Json
         }
         Relationships: []

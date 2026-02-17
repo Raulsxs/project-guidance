@@ -38,9 +38,118 @@ serve(async (req) => {
       brandId, slide, slideIndex, totalSlides, contentFormat,
       articleUrl, articleContent, contentId,
       templateSetId, categoryId,
+      styleGalleryId,
     } = await req.json();
 
     if (!slide) throw new Error("slide object is required");
+
+    // ══════ STYLE GALLERY MODE (takes priority over brand) ══════
+    if (styleGalleryId) {
+      const { data: galleryStyle } = await supabaseAdmin
+        .from("system_template_sets")
+        .select("name, reference_images, preview_images, supported_formats, style_prompt")
+        .eq("id", styleGalleryId)
+        .single();
+
+      if (!galleryStyle) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Estilo da galeria não encontrado (ID: ${styleGalleryId}).`,
+        }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const refImages = galleryStyle.reference_images as Record<string, Record<string, string[]>> | null;
+      const formatKey = contentFormat === "carousel" ? "carousel" : contentFormat === "story" ? "story" : "post";
+
+      // Check if the style has references for this format
+      const formatRefs = refImages?.[formatKey];
+      if (!formatRefs || Object.values(formatRefs).flat().length === 0) {
+        // Try fallback to "post" format
+        const fallbackRefs = refImages?.["post"];
+        if (!fallbackRefs || Object.values(fallbackRefs).flat().length === 0) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: `Estilo "${galleryStyle.name}" não possui referências para o formato "${formatKey}". Gere o pack de imagens primeiro na Galeria de Estilos.`,
+          }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      // Get role-specific references
+      const role = slide.role || "content";
+      const roleRefs = formatRefs?.[role] || formatRefs?.["content"] || [];
+      const allFormatRefs = Object.values(formatRefs || {}).flat();
+      const selectedRefs = roleRefs.length > 0 ? roleRefs : allFormatRefs;
+
+      console.log(`[generate-slide-images] STYLE_GALLERY mode: style="${galleryStyle.name}", format=${formatKey}, role=${role}, refs=${selectedRefs.length}`);
+
+      // Build multimodal request with gallery references
+      const contentParts: any[] = [];
+      for (const imgUrl of selectedRefs.slice(0, 6)) {
+        contentParts.push({ type: "image_url", image_url: { url: imgUrl } });
+      }
+
+      const prompt = buildPrompt(
+        slide, slideIndex || 0, totalSlides || 1,
+        null, undefined, articleContent, contentFormat,
+        null, null, galleryStyle.name,
+      );
+      contentParts.push({ type: "text", text: prompt });
+
+      // Generate image
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          const delay = attempt * 3000 + Math.random() * 2000;
+          await new Promise(r => setTimeout(r, delay));
+        }
+
+        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-image",
+            messages: [{ role: "user", content: contentParts }],
+            modalities: ["image", "text"],
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+          if (!base64Image) {
+            return new Response(JSON.stringify({
+              success: true, imageUrl: null,
+              debug: { styleGalleryId, styleName: galleryStyle.name, referencesUsedCount: selectedRefs.length, mode: "style_gallery" },
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+
+          const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
+          return new Response(JSON.stringify({
+            success: true, imageUrl,
+            debug: {
+              styleGalleryId, styleName: galleryStyle.name,
+              referencesUsedCount: selectedRefs.length, mode: "style_gallery",
+              image_model: "google/gemini-2.5-flash-image",
+              image_generation_ms: Date.now() - t0,
+            },
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        const status = response.status;
+        if (status === 402) throw new Error("Insufficient credits.");
+        if (status === 429 || status === 502 || status === 503) {
+          lastError = new Error(`AI error: ${status}`);
+          continue;
+        }
+        throw new Error(`AI image error: ${status}`);
+      }
+      throw lastError || new Error("Max retries exceeded");
+    }
+
+    if (!brandId) throw new Error("brandId is required");
     if (!brandId) throw new Error("brandId is required");
 
     // ══════ LOAD BRAND ══════
