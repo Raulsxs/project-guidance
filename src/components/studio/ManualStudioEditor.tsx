@@ -11,11 +11,13 @@ import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import SlideTemplateRenderer, { resolveTemplateForSlide } from "@/components/content/SlideTemplateRenderer";
+import SlideBgOverlayRenderer from "@/components/content/SlideBgOverlayRenderer";
+import { getSlideRenderMode } from "@/lib/slideUtils";
 import {
   Sparkles, Palette, Layers, Square, Smartphone, Save,
   ChevronLeft, ChevronRight, Plus, Trash2, Loader2,
   Newspaper, Quote, Lightbulb, GraduationCap, HelpCircle,
-  Wand2, Copy, Hash,
+  Wand2, Copy, Hash, Image as ImageIcon,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
@@ -36,6 +38,7 @@ interface BrandOption {
   logo_url: string | null;
   style_guide: any;
   default_template_set_id: string | null;
+  render_mode?: string;
 }
 
 interface TemplateSetOption {
@@ -56,6 +59,10 @@ interface SlideData {
   templateHint?: string;
   image_url?: string;
   previewImage?: string; // legacy compat
+  background_image_url?: string; // AI_BG_OVERLAY mode
+  overlay?: { headline?: string; body?: string; bullets?: string[]; footer?: string };
+  overlay_style?: { safe_area_top?: number; safe_area_bottom?: number; text_align?: "left" | "center"; max_headline_lines?: number; font_scale?: number };
+  render_mode?: "legacy_image" | "ai_bg_overlay";
   speakerNotes?: string;
   illustrationPrompt?: string;
   imagePrompt?: string;
@@ -163,7 +170,7 @@ export default function ManualStudioEditor() {
     const load = async () => {
       const { data } = await supabase
         .from("brands")
-        .select("id, name, palette, fonts, visual_tone, logo_url, style_guide, default_template_set_id")
+        .select("id, name, palette, fonts, visual_tone, logo_url, style_guide, default_template_set_id, render_mode")
         .order("name");
       if (data) setBrands(data as unknown as BrandOption[]);
     };
@@ -433,37 +440,58 @@ export default function ManualStudioEditor() {
 
       // ══════ STEP 2: Generate slide images ══════
       if (brandId && newSlides.length > 0) {
+        const isOverlayMode = currentBrand?.render_mode === "AI_BG_OVERLAY";
         setGeneratingImages(true);
         const contentId = `studio-${Date.now()}`;
         let completedCount = 0;
-        setImageGenProgress(`Gerando imagens 0/${newSlides.length}...`);
+        setImageGenProgress(`Gerando ${isOverlayMode ? "backgrounds" : "imagens"} 0/${newSlides.length}...`);
 
         try {
           const batchSize = 2;
           const allResults: { index: number; data: any; error: any }[] = [];
+          const functionName = isOverlayMode ? "generate-slide-backgrounds" : "generate-slide-images";
 
           for (let batch = 0; batch < newSlides.length; batch += batchSize) {
             const batchSlides = newSlides.slice(batch, batch + batchSize);
             const batchPromises = batchSlides.map((s, batchIdx) => {
               const i = batch + batchIdx;
-              return supabase.functions.invoke("generate-slide-images", {
-                body: {
-                  brandId,
-                  slide: s,
-                  slideIndex: i,
-                  totalSlides: newSlides.length,
-                  contentFormat: selectedFormat,
-                  articleUrl: notes || undefined,
-                  articleContent: "",
-                  contentId,
-                  templateSetId: resolvedTsId || undefined,
-                  categoryId: resolvedTs?.category_id || undefined,
-                  briefingImages: briefingImages.length > 0 ? briefingImages : undefined,
-                },
-              }).then(result => {
+              const bodyPayload = isOverlayMode ? {
+                brandId,
+                templateSetId: resolvedTsId || undefined,
+                categoryId: resolvedTs?.category_id || undefined,
+                contentFormat: selectedFormat,
+                slideIndex: i,
+                role: s.role || "content",
+                overlay: { headline: s.headline, body: s.body, bullets: s.bullets },
+                language: "pt-BR",
+                contentId,
+              } : {
+                brandId,
+                slide: s,
+                slideIndex: i,
+                totalSlides: newSlides.length,
+                contentFormat: selectedFormat,
+                articleUrl: notes || undefined,
+                articleContent: "",
+                contentId,
+                templateSetId: resolvedTsId || undefined,
+                categoryId: resolvedTs?.category_id || undefined,
+                briefingImages: briefingImages.length > 0 ? briefingImages : undefined,
+              };
+
+              return supabase.functions.invoke(functionName, { body: bodyPayload }).then(result => {
                 completedCount++;
-                setImageGenProgress(`Gerando imagens ${completedCount}/${newSlides.length}...`);
-                if (result.data?.imageUrl) {
+                setImageGenProgress(`Gerando ${isOverlayMode ? "backgrounds" : "imagens"} ${completedCount}/${newSlides.length}...`);
+                if (isOverlayMode && result.data?.backgroundImageUrl) {
+                  setSlides(prev => prev.map((sl, idx) =>
+                    idx === i ? {
+                      ...sl,
+                      background_image_url: result.data.backgroundImageUrl,
+                      overlay: { headline: sl.headline, body: sl.body, bullets: sl.bullets },
+                      render_mode: "ai_bg_overlay" as const,
+                    } : sl
+                  ));
+                } else if (!isOverlayMode && result.data?.imageUrl) {
                   setSlides(prev => prev.map((sl, idx) =>
                     idx === i ? { ...sl, image_url: result.data.imageUrl, previewImage: result.data.imageUrl } : sl
                   ));
@@ -482,8 +510,9 @@ export default function ManualStudioEditor() {
             }
           }
 
-          const successCount = allResults.filter(r => r.data?.imageUrl).length;
-          toast.success(`${successCount}/${newSlides.length} imagens geradas!`);
+          const isOv = currentBrand?.render_mode === "AI_BG_OVERLAY";
+          const successCount = allResults.filter(r => isOv ? r.data?.backgroundImageUrl : r.data?.imageUrl).length;
+          toast.success(`${successCount}/${newSlides.length} ${isOv ? "backgrounds" : "imagens"} gerados!`);
         } catch (imgErr: any) {
           console.error("Image generation error:", imgErr);
           toast.error("Erro ao gerar imagens: " + (imgErr.message || "Tente novamente"));
@@ -508,30 +537,56 @@ export default function ManualStudioEditor() {
       toast.error("Selecione uma marca para gerar imagens");
       return;
     }
+    const isOverlayMode = currentBrand?.render_mode === "AI_BG_OVERLAY";
     setGeneratingImages(true);
-    setImageGenProgress(`Regenerando slide ${index + 1}...`);
+    setImageGenProgress(`Regenerando ${isOverlayMode ? "background" : "imagem"} do slide ${index + 1}...`);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-slide-images", {
-        body: {
-          brandId,
-          slide: slides[index],
-          slideIndex: index,
-          totalSlides: slides.length,
-          contentFormat: selectedFormat,
-          articleUrl: notes || undefined,
-          contentId: `studio-regen-${Date.now()}`,
-          templateSetId: resolvedTsId || undefined,
-        },
-      });
-
-      if (error) throw error;
-      if (data?.imageUrl) {
-        setSlides(prev => prev.map((s, i) => ({
-          ...s,
-          image_url: i === index ? data.imageUrl : s.image_url,
-          previewImage: i === index ? data.imageUrl : s.previewImage,
-        })));
-        toast.success("Imagem regenerada!");
+      if (isOverlayMode) {
+        const { data, error } = await supabase.functions.invoke("generate-slide-backgrounds", {
+          body: {
+            brandId,
+            templateSetId: resolvedTsId || undefined,
+            categoryId: resolvedTs?.category_id || undefined,
+            contentFormat: selectedFormat,
+            slideIndex: index,
+            role: slides[index].role || "content",
+            overlay: { headline: slides[index].headline, body: slides[index].body, bullets: slides[index].bullets },
+            language: "pt-BR",
+            contentId: `studio-regen-bg-${Date.now()}`,
+          },
+        });
+        if (error) throw error;
+        if (data?.backgroundImageUrl) {
+          setSlides(prev => prev.map((s, i) => i === index ? {
+            ...s,
+            background_image_url: data.backgroundImageUrl,
+            overlay: { headline: s.headline, body: s.body, bullets: s.bullets },
+            render_mode: "ai_bg_overlay" as const,
+          } : s));
+          toast.success("Background regenerado!");
+        }
+      } else {
+        const { data, error } = await supabase.functions.invoke("generate-slide-images", {
+          body: {
+            brandId,
+            slide: slides[index],
+            slideIndex: index,
+            totalSlides: slides.length,
+            contentFormat: selectedFormat,
+            articleUrl: notes || undefined,
+            contentId: `studio-regen-${Date.now()}`,
+            templateSetId: resolvedTsId || undefined,
+          },
+        });
+        if (error) throw error;
+        if (data?.imageUrl) {
+          setSlides(prev => prev.map((s, i) => ({
+            ...s,
+            image_url: i === index ? data.imageUrl : s.image_url,
+            previewImage: i === index ? data.imageUrl : s.previewImage,
+          })));
+          toast.success("Imagem regenerada!");
+        }
       }
     } catch (err: any) {
       toast.error("Erro: " + (err.message || "Tente novamente"));
@@ -900,8 +955,28 @@ export default function ManualStudioEditor() {
                 className="overflow-hidden rounded-[1.5rem] bg-background"
                 style={{ aspectRatio: selectedFormat === "story" ? "9/16" : "4/5" }}
               >
-                {/* Show AI-generated image if available, otherwise fallback to template renderer */}
-                {(slide?.image_url || slide?.previewImage) ? (
+                {/* Render priority: bg_overlay > legacy image > template */}
+                {slide?.background_image_url ? (
+                  <div
+                    style={{
+                      transform: `scale(${328 / dims.width})`,
+                      transformOrigin: "top left",
+                      width: dims.width,
+                      height: dims.height,
+                    }}
+                  >
+                    <SlideBgOverlayRenderer
+                      backgroundImageUrl={slide.background_image_url}
+                      overlay={slide.overlay || { headline: slide.headline, body: slide.body, bullets: slide.bullets }}
+                      overlayStyle={slide.overlay_style}
+                      dimensions={dims}
+                      role={slide.role}
+                      slideIndex={currentSlide}
+                      totalSlides={slides.length}
+                      brandSnapshot={brandSnapshot}
+                    />
+                  </div>
+                ) : (slide?.image_url || slide?.previewImage) ? (
                   <img
                     src={slide.image_url || slide.previewImage}
                     alt={`Slide ${currentSlide + 1}`}
@@ -932,22 +1007,28 @@ export default function ManualStudioEditor() {
           </div>
 
           <div className="mt-4 text-center space-y-2">
-            {/* Regenerate single slide button */}
+            {/* Regenerate buttons */}
             {selectedBrand !== "free" && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => handleRegenerateSlideImage(currentSlide)}
-                disabled={generatingImages}
-              >
-                {generatingImages ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Wand2 className="w-3.5 h-3.5" />
-                )}
-                {(slide?.image_url || slide?.previewImage) ? "Regenerar imagem" : "Gerar imagem"}
-              </Button>
+              <div className="flex items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => handleRegenerateSlideImage(currentSlide)}
+                  disabled={generatingImages}
+                >
+                  {generatingImages ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : currentBrand?.render_mode === "AI_BG_OVERLAY" ? (
+                    <ImageIcon className="w-3.5 h-3.5" />
+                  ) : (
+                    <Wand2 className="w-3.5 h-3.5" />
+                  )}
+                  {currentBrand?.render_mode === "AI_BG_OVERLAY"
+                    ? (slide?.background_image_url ? "Regenerar background" : "Gerar background")
+                    : (slide?.image_url || slide?.previewImage) ? "Regenerar imagem" : "Gerar imagem"}
+                </Button>
+              </div>
             )}
 
             {/* Debug info */}
