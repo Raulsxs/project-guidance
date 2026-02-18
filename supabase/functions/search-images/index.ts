@@ -69,10 +69,22 @@ serve(async (req) => {
     // Use Unsplash API (free tier with attribution)
     const unsplashUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&page=${page}&per_page=${perPage}&orientation=portrait`;
     
-    // Unsplash demo access key (rate limited but functional)
+    const UNSPLASH_ACCESS_KEY = Deno.env.get("UNSPLASH_ACCESS_KEY");
+    if (!UNSPLASH_ACCESS_KEY) {
+      console.error("UNSPLASH_ACCESS_KEY not configured");
+      const fallbackImages = generateFallbackImages(category, perPage);
+      return new Response(JSON.stringify({
+        success: true,
+        images: fallbackImages,
+        source: "fallback",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const response = await fetch(unsplashUrl, {
       headers: {
-        "Authorization": "Client-ID Ab4_fLK_NOi3FkS-GYHNQxjWwJqcE-Ryt2VIcvZb5Rs",
+        "Authorization": `Client-ID ${UNSPLASH_ACCESS_KEY}`,
         "Accept-Version": "v1",
       },
     });
