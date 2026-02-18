@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { normalizeSlides, buildContentDraftKey } from "@/lib/slideUtils";
+import { normalizeSlides, buildContentDraftKey, getSlideRenderMode } from "@/lib/slideUtils";
 import { useDraft } from "@/hooks/useDraft";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import DraftRestoreModal from "@/components/content/DraftRestoreModal";
+import SlideBgOverlayRenderer from "@/components/content/SlideBgOverlayRenderer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +58,11 @@ interface Slide {
   bullets?: string[];
   speakerNotes?: string;
   image_stale?: boolean;
+  // AI_BG_OVERLAY mode fields
+  background_image_url?: string;
+  overlay?: { headline?: string; body?: string; bullets?: string[]; footer?: string };
+  overlay_style?: { safe_area_top?: number; safe_area_bottom?: number; text_align?: "left" | "center"; max_headline_lines?: number; font_scale?: number };
+  render_mode?: "legacy_image" | "ai_bg_overlay";
 }
 
 interface BrandSnapshotData {

@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import SlideTemplateRenderer from "@/components/content/SlideTemplateRenderer";
+import SlideBgOverlayRenderer from "@/components/content/SlideBgOverlayRenderer";
 import { toPng } from "html-to-image";
 import JSZip from "jszip";
 import {
@@ -31,6 +32,10 @@ interface Slide {
   template?: string;
   role?: string;
   bullets?: string[];
+  background_image_url?: string;
+  overlay?: { headline?: string; body?: string; bullets?: string[]; footer?: string };
+  overlay_style?: { safe_area_top?: number; safe_area_bottom?: number; text_align?: "left" | "center"; max_headline_lines?: number; font_scale?: number };
+  render_mode?: "legacy_image" | "ai_bg_overlay";
 }
 
 interface BrandSnapshotData {
@@ -107,18 +112,23 @@ const DownloadPage = () => {
 
   const captureSlide = useCallback(async (index: number): Promise<Blob> => {
     const slide = content?.slides[index];
-    const imgUrl = slide?.image_url || slide?.previewImage;
     
-    // If we have an AI-generated image, download it directly as blob (pixel-perfect)
-    if (imgUrl && imgUrl.startsWith("http")) {
-      try {
-        const res = await fetch(imgUrl);
-        if (res.ok) {
-          const blob = await res.blob();
-          return blob;
+    // For overlay mode: must render via html-to-image (bg + text overlay)
+    const hasOverlayBg = !!slide?.background_image_url;
+    
+    if (!hasOverlayBg) {
+      // Legacy: If we have an AI-generated image, download it directly as blob (pixel-perfect)
+      const imgUrl = slide?.image_url || slide?.previewImage;
+      if (imgUrl && imgUrl.startsWith("http")) {
+        try {
+          const res = await fetch(imgUrl);
+          if (res.ok) {
+            const blob = await res.blob();
+            return blob;
+          }
+        } catch (e) {
+          console.warn(`[Download] Could not fetch image for slide ${index}, falling back to template render`);
         }
-      } catch (e) {
-        console.warn(`[Download] Could not fetch image for slide ${index}, falling back to template render`);
       }
     }
 
@@ -477,14 +487,31 @@ const DownloadPage = () => {
           }}
         >
           <div ref={renderRef} style={{ width: dims.width, height: dims.height }}>
-            <SlideTemplateRenderer
-              slide={content.slides[renderIndex]}
-              slideIndex={renderIndex}
-              totalSlides={content.slides.length}
-              brand={brandSnapshot as any}
-              template={content.slides[renderIndex].templateHint || content.slides[renderIndex].template}
-              dimensions={dims}
-            />
+            {content.slides[renderIndex].background_image_url ? (
+              <SlideBgOverlayRenderer
+                backgroundImageUrl={content.slides[renderIndex].background_image_url!}
+                overlay={content.slides[renderIndex].overlay || {
+                  headline: content.slides[renderIndex].headline,
+                  body: content.slides[renderIndex].body,
+                  bullets: content.slides[renderIndex].bullets,
+                }}
+                overlayStyle={content.slides[renderIndex].overlay_style}
+                dimensions={dims}
+                role={content.slides[renderIndex].role}
+                slideIndex={renderIndex}
+                totalSlides={content.slides.length}
+                brandSnapshot={brandSnapshot as any}
+              />
+            ) : (
+              <SlideTemplateRenderer
+                slide={content.slides[renderIndex]}
+                slideIndex={renderIndex}
+                totalSlides={content.slides.length}
+                brand={brandSnapshot as any}
+                template={content.slides[renderIndex].templateHint || content.slides[renderIndex].template}
+                dimensions={dims}
+              />
+            )}
           </div>
         </div>
       )}

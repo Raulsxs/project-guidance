@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.generate-style-pack]
 verify_jwt = false
+
+[functions.generate-slide-backgrounds]
+verify_jwt = false

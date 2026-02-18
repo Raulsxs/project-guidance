@@ -219,6 +219,7 @@ export type Database = {
           name: string
           owner_user_id: string
           palette: Json | null
+          render_mode: string
           style_guide: Json | null
           style_guide_updated_at: string | null
           style_guide_version: number
@@ -241,6 +242,7 @@ export type Database = {
           name: string
           owner_user_id: string
           palette?: Json | null
+          render_mode?: string
           style_guide?: Json | null
           style_guide_updated_at?: string | null
           style_guide_version?: number
@@ -263,6 +265,7 @@ export type Database = {
           name?: string
           owner_user_id?: string
           palette?: Json | null
+          render_mode?: string
           style_guide?: Json | null
           style_guide_updated_at?: string | null
           style_guide_version?: number
