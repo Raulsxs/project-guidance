@@ -39,9 +39,12 @@ serve(async (req) => {
       articleUrl, articleContent, contentId,
       templateSetId, categoryId,
       styleGalleryId,
+      language: requestLanguage,
     } = await req.json();
 
     if (!slide) throw new Error("slide object is required");
+
+    const language = requestLanguage || "pt-BR";
 
     // ══════ STYLE GALLERY MODE (takes priority over brand) ══════
     if (styleGalleryId) {
@@ -61,10 +64,8 @@ serve(async (req) => {
       const refImages = galleryStyle.reference_images as Record<string, Record<string, string[]>> | null;
       const formatKey = contentFormat === "carousel" ? "carousel" : contentFormat === "story" ? "story" : "post";
 
-      // Check if the style has references for this format
       const formatRefs = refImages?.[formatKey];
       if (!formatRefs || Object.values(formatRefs).flat().length === 0) {
-        // Try fallback to "post" format
         const fallbackRefs = refImages?.["post"];
         if (!fallbackRefs || Object.values(fallbackRefs).flat().length === 0) {
           return new Response(JSON.stringify({
@@ -74,7 +75,6 @@ serve(async (req) => {
         }
       }
 
-      // Get role-specific references
       const role = slide.role || "content";
       const roleRefs = formatRefs?.[role] || formatRefs?.["content"] || [];
       const allFormatRefs = Object.values(formatRefs || {}).flat();
@@ -82,74 +82,48 @@ serve(async (req) => {
 
       console.log(`[generate-slide-images] STYLE_GALLERY mode: style="${galleryStyle.name}", format=${formatKey}, role=${role}, refs=${selectedRefs.length}`);
 
-      // Build multimodal request with gallery references
+      // Lock text before image generation
+      const lockedText = await lockText(LOVABLE_API_KEY, slide, language);
+      console.log(`[generate-slide-images] Text locked: headline="${lockedText.locked_headline?.substring(0, 40)}...", glossary=[${lockedText.glossary_applied.join(",")}]`);
+
       const contentParts: any[] = [];
       for (const imgUrl of selectedRefs.slice(0, 6)) {
         contentParts.push({ type: "image_url", image_url: { url: imgUrl } });
       }
 
       const prompt = buildPrompt(
-        slide, slideIndex || 0, totalSlides || 1,
+        { ...slide, headline: lockedText.locked_headline, body: lockedText.locked_body, bullets: lockedText.locked_bullets },
+        slideIndex || 0, totalSlides || 1,
         null, undefined, articleContent, contentFormat,
-        null, null, galleryStyle.name,
+        null, null, galleryStyle.name, language,
       );
       contentParts.push({ type: "text", text: prompt });
 
-      // Generate image
-      let lastError: Error | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) {
-          const delay = attempt * 3000 + Math.random() * 2000;
-          await new Promise(r => setTimeout(r, delay));
-        }
+      // Generate + self-check loop
+      const result = await generateWithSelfCheck(
+        LOVABLE_API_KEY, contentParts, lockedText.locked_headline, language
+      );
 
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash-image",
-            messages: [{ role: "user", content: contentParts }],
-            modalities: ["image", "text"],
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-          if (!base64Image) {
-            return new Response(JSON.stringify({
-              success: true, imageUrl: null,
-              debug: { styleGalleryId, styleName: galleryStyle.name, referencesUsedCount: selectedRefs.length, mode: "style_gallery" },
-            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
-
-          const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
-          return new Response(JSON.stringify({
-            success: true, imageUrl,
-            debug: {
-              styleGalleryId, styleName: galleryStyle.name,
-              referencesUsedCount: selectedRefs.length, mode: "style_gallery",
-              image_model: "google/gemini-2.5-flash-image",
-              image_generation_ms: Date.now() - t0,
-            },
-          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-
-        const status = response.status;
-        if (status === 402) throw new Error("Insufficient credits.");
-        if (status === 429 || status === 502 || status === 503) {
-          lastError = new Error(`AI error: ${status}`);
-          continue;
-        }
-        throw new Error(`AI image error: ${status}`);
+      if (!result.base64Image) {
+        return new Response(JSON.stringify({
+          success: true, imageUrl: null,
+          debug: { styleGalleryId, styleName: galleryStyle.name, referencesUsedCount: selectedRefs.length, mode: "style_gallery" },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      throw lastError || new Error("Max retries exceeded");
+
+      const imageUrl = await uploadBase64ToStorage(supabaseAdmin, result.base64Image, contentId || "draft", slideIndex || 0);
+      return new Response(JSON.stringify({
+        success: true, imageUrl,
+        debug: {
+          styleGalleryId, styleName: galleryStyle.name,
+          referencesUsedCount: selectedRefs.length, mode: "style_gallery",
+          image_model: "google/gemini-2.5-flash-image",
+          image_generation_ms: Date.now() - t0,
+          text_locked: true, self_check_retried: result.retried,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (!brandId) throw new Error("brandId is required");
     if (!brandId) throw new Error("brandId is required");
 
     // ══════ LOAD BRAND ══════
@@ -159,7 +133,7 @@ serve(async (req) => {
       .eq("id", brandId)
       .single();
 
-    // ══════ LOAD TEMPLATE SET (for style_guide and category filtering) ══════
+    // ══════ LOAD TEMPLATE SET ══════
     let templateSetData: any = null;
     let resolvedCategoryId: string | null = categoryId || null;
     let templateSetName: string | null = null;
@@ -180,7 +154,7 @@ serve(async (req) => {
       }
     }
 
-    // ══════ LOAD REFERENCE IMAGES (filtered by category/pilar) ══════
+    // ══════ LOAD REFERENCE IMAGES ══════
     const contentTypeFilter = contentFormat === "carousel" ? "carrossel"
       : contentFormat === "story" ? "story"
       : "post";
@@ -189,7 +163,6 @@ serve(async (req) => {
     let referenceExampleIds: string[] = [];
     let fallbackLevel = 0;
 
-    // Level 0: category_id + content type
     if (resolvedCategoryId) {
       const { data: catExamples } = await supabase
         .from("brand_examples")
@@ -205,7 +178,6 @@ serve(async (req) => {
         referenceExampleIds = catExamples.map((e: any) => e.id);
         fallbackLevel = 0;
       } else {
-        // Level 1: category_id only (any content type)
         const { data: catAllExamples } = await supabase
           .from("brand_examples")
           .select("id, image_url")
@@ -222,7 +194,6 @@ serve(async (req) => {
       }
     }
 
-    // Level 2: brand + content type (last resort)
     if (referenceImageUrls.length < 3) {
       const { data: brandExamples } = await supabase
         .from("brand_examples")
@@ -242,7 +213,6 @@ serve(async (req) => {
     const fallbackLabels = ["exact_category", "category_any_type", "brand_wide"];
     console.log(`[generate-slide-images] Slide ${(slideIndex || 0) + 1}/${totalSlides || "?"}, refs=${referenceImageUrls.length}, fallback=${fallbackLabels[fallbackLevel]}, templateSet="${templateSetName || 'none'}", categoryId=${resolvedCategoryId || 'none'}`);
 
-    // F) If template set was selected but no references found, return error
     if (templateSetId && referenceImageUrls.length === 0) {
       return new Response(JSON.stringify({
         success: false,
@@ -253,7 +223,11 @@ serve(async (req) => {
       });
     }
 
-    // ══════ EXTRACT STYLE GUIDE FROM TEMPLATE SET ══════
+    // ══════ TEXT LOCK: correct spelling before image generation ══════
+    const lockedText = await lockText(LOVABLE_API_KEY, slide, language);
+    console.log(`[generate-slide-images] Text locked: headline="${lockedText.locked_headline?.substring(0, 40)}...", glossary=[${lockedText.glossary_applied.join(",")}]`);
+
+    // ══════ EXTRACT STYLE GUIDE ══════
     const styleGuide = templateSetData?.template_set?.layout_params || null;
     const rules = templateSetData?.template_set?.rules || null;
     const visualSignature = templateSetData?.visual_signature || templateSetData?.template_set?.visual_signature || null;
@@ -261,7 +235,6 @@ serve(async (req) => {
     // ══════ BUILD MULTIMODAL REQUEST ══════
     const contentParts: any[] = [];
 
-    // Add reference images (max 6 to reduce payload)
     for (const imgUrl of referenceImageUrls.slice(0, 6)) {
       contentParts.push({
         type: "image_url",
@@ -269,91 +242,48 @@ serve(async (req) => {
       });
     }
 
-    // Build prompt (articleUrl is intentionally NOT passed to avoid URLs in image)
+    // Use locked text in the prompt
     const prompt = buildPrompt(
-      slide, slideIndex || 0, totalSlides || 1,
+      { ...slide, headline: lockedText.locked_headline, body: lockedText.locked_body, bullets: lockedText.locked_bullets },
+      slideIndex || 0, totalSlides || 1,
       brandInfo, undefined, articleContent, contentFormat,
-      rules, visualSignature, templateSetName,
+      rules, visualSignature, templateSetName, language,
     );
     contentParts.push({ type: "text", text: prompt });
 
-    // Retry logic for transient errors (502, 503, 429)
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
-        const delay = attempt * 3000 + Math.random() * 2000;
-        console.log(`[generate-slide-images] Retry ${attempt}/2 after ${Math.round(delay)}ms...`);
-        await new Promise(r => setTimeout(r, delay));
-      }
+    // ══════ GENERATE WITH SELF-CHECK ══════
+    const result = await generateWithSelfCheck(
+      LOVABLE_API_KEY, contentParts, lockedText.locked_headline, language
+    );
 
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash-image",
-          messages: [{ role: "user", content: contentParts }],
-          modalities: ["image", "text"],
-        }),
+    if (!result.base64Image) {
+      return new Response(JSON.stringify({
+        success: true, imageUrl: null,
+        debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel] },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-
-      if (response.ok) {
-        const responseText = await response.text();
-        let data: any;
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          console.warn(`[generate-slide-images] Empty/invalid JSON response on attempt ${attempt + 1}, retrying...`);
-          lastError = new Error("Empty response from AI");
-          continue;
-        }
-        const base64Image = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-
-        if (!base64Image) {
-          return new Response(JSON.stringify({
-            success: true, imageUrl: null,
-            debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel] },
-          }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-
-        const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
-        console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded`);
-
-        return new Response(JSON.stringify({
-          success: true, imageUrl,
-          debug: {
-            templateSetId, templateSetName, categoryId: resolvedCategoryId,
-            referencesUsedCount: referenceImageUrls.length, referenceExampleIds,
-            fallbackLevel: fallbackLabels[fallbackLevel],
-            image_model: "google/gemini-2.5-flash-image",
-            image_generation_ms: Date.now() - t0,
-            generated_at: new Date().toISOString(),
-          },
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const status = response.status;
-      if (status === 402) throw new Error("Insufficient credits.");
-      
-      if (status === 429 || status === 502 || status === 503) {
-        const errText = await response.text();
-        console.warn(`[generate-slide-images] Retryable error ${status} on attempt ${attempt + 1}`);
-        lastError = new Error(`AI error: ${status}`);
-        continue;
-      }
-
-      const errText = await response.text();
-      console.error(`[generate-slide-images] Non-retryable error ${status}:`, errText.substring(0, 200));
-      throw new Error(`AI image error: ${status}`);
     }
 
-    throw lastError || new Error("Max retries exceeded");
+    const imageUrl = await uploadBase64ToStorage(supabaseAdmin, result.base64Image, contentId || "draft", slideIndex || 0);
+    console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded${result.retried ? " (after self-check retry)" : ""}`);
+
+    return new Response(JSON.stringify({
+      success: true, imageUrl,
+      debug: {
+        templateSetId, templateSetName, categoryId: resolvedCategoryId,
+        referencesUsedCount: referenceImageUrls.length, referenceExampleIds,
+        fallbackLevel: fallbackLabels[fallbackLevel],
+        image_model: "google/gemini-2.5-flash-image",
+        image_generation_ms: Date.now() - t0,
+        generated_at: new Date().toISOString(),
+        text_locked: true,
+        self_check_retried: result.retried,
+        locked_headline: lockedText.locked_headline,
+      },
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
 
   } catch (error) {
     console.error("[generate-slide-images] error:", error);
@@ -365,11 +295,322 @@ serve(async (req) => {
   }
 });
 
+// ══════ TEXT LOCK: spelling correction + standardization ══════
+
+async function lockText(
+  apiKey: string,
+  slide: any,
+  language: string,
+): Promise<{
+  locked_headline: string;
+  locked_body: string;
+  locked_bullets: string[];
+  locked_cta: string;
+  language: string;
+  glossary_applied: string[];
+}> {
+  const rawHeadline = sanitizeText(slide.headline || "");
+  const rawBody = sanitizeText(slide.body || "");
+  const rawBullets = (slide.bullets || []).map((b: string) => sanitizeText(b));
+  const rawCta = slide.role === "cta" ? sanitizeText(slide.body || "") : "";
+
+  // If no text at all, skip the API call
+  if (!rawHeadline && !rawBody && rawBullets.length === 0) {
+    return {
+      locked_headline: rawHeadline,
+      locked_body: rawBody,
+      locked_bullets: rawBullets,
+      locked_cta: rawCta,
+      language,
+      glossary_applied: [],
+    };
+  }
+
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: `Você é um corretor ortográfico estrito para ${language}. Sua ÚNICA tarefa é:
+1. Corrigir erros de ortografia e acentuação (á, é, í, ó, ú, ã, õ, ç, ê, â).
+2. Padronizar termos recorrentes: "Tendência" (com ê), "Carrossel", "Inteligência Artificial", "Ressonância".
+3. Manter caixa alta (UPPERCASE) se o original estiver em caixa alta.
+4. Remover URLs, domínios, "Artigo fonte:", "Estilo/Pilar:", metadados técnicos.
+5. NÃO traduzir, NÃO reescrever, NÃO mudar estilo ou sentido.
+6. NÃO adicionar texto novo.
+
+Responda APENAS com JSON válido no formato:
+{"locked_headline":"...","locked_body":"...","locked_bullets":["..."],"locked_cta":"...","glossary_applied":["termo1","termo2"]}`,
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              headline: rawHeadline,
+              body: rawBody,
+              bullets: rawBullets,
+              cta: rawCta,
+            }),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[lockText] API error ${response.status}, using raw text`);
+      return {
+        locked_headline: rawHeadline,
+        locked_body: rawBody,
+        locked_bullets: rawBullets,
+        locked_cta: rawCta,
+        language,
+        glossary_applied: [],
+      };
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+
+    // Extract JSON from response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn("[lockText] No JSON found in response, using raw text");
+      return {
+        locked_headline: rawHeadline,
+        locked_body: rawBody,
+        locked_bullets: rawBullets,
+        locked_cta: rawCta,
+        language,
+        glossary_applied: [],
+      };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      locked_headline: parsed.locked_headline || rawHeadline,
+      locked_body: parsed.locked_body || rawBody,
+      locked_bullets: parsed.locked_bullets || rawBullets,
+      locked_cta: parsed.locked_cta || rawCta,
+      language,
+      glossary_applied: parsed.glossary_applied || [],
+    };
+  } catch (err) {
+    console.warn("[lockText] Error, falling back to raw text:", err);
+    return {
+      locked_headline: rawHeadline,
+      locked_body: rawBody,
+      locked_bullets: rawBullets,
+      locked_cta: rawCta,
+      language,
+      glossary_applied: [],
+    };
+  }
+}
+
+// ══════ GENERATE WITH SELF-CHECK ══════
+
+async function generateWithSelfCheck(
+  apiKey: string,
+  contentParts: any[],
+  expectedHeadline: string,
+  language: string,
+): Promise<{ base64Image: string | null; retried: boolean }> {
+  let retried = false;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const base64Image = await callImageModel(apiKey, contentParts, attempt);
+
+    if (!base64Image) {
+      return { base64Image: null, retried: false };
+    }
+
+    // Skip self-check if headline is too short or empty
+    if (!expectedHeadline || expectedHeadline.length < 5) {
+      return { base64Image, retried };
+    }
+
+    // Self-check: only on first attempt
+    if (attempt === 0) {
+      const checkResult = await selfCheck(apiKey, base64Image, expectedHeadline, language);
+      if (checkResult.pass) {
+        console.log(`[selfCheck] ✅ Headline matches (similarity=${checkResult.similarity})`);
+        return { base64Image, retried: false };
+      }
+
+      console.warn(`[selfCheck] ⚠️ Headline divergence detected (similarity=${checkResult.similarity}). Expected: "${expectedHeadline.substring(0, 40)}", Got: "${checkResult.extractedText?.substring(0, 40)}". Retrying...`);
+      retried = true;
+
+      // Reinforce the prompt for retry
+      const lastPart = contentParts[contentParts.length - 1];
+      if (lastPart?.type === "text") {
+        contentParts[contentParts.length - 1] = {
+          type: "text",
+          text: lastPart.text + `\n\n⚠️ ATENÇÃO CRÍTICA: Na tentativa anterior o texto do headline saiu ERRADO. O headline DEVE ser EXATAMENTE: "${expectedHeadline}". Copie LETRA POR LETRA, incluindo acentos. QUALQUER alteração é INACEITÁVEL.`,
+        };
+      }
+      continue;
+    }
+
+    // Second attempt: return whatever we got
+    return { base64Image, retried: true };
+  }
+
+  return { base64Image: null, retried };
+}
+
+async function callImageModel(apiKey: string, contentParts: any[], attempt: number): Promise<string | null> {
+  // Retry logic for transient errors
+  let lastError: Error | null = null;
+  for (let retry = 0; retry < 3; retry++) {
+    if (retry > 0) {
+      const delay = retry * 3000 + Math.random() * 2000;
+      console.log(`[generate-slide-images] Retry ${retry}/2 after ${Math.round(delay)}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-image",
+        messages: [{ role: "user", content: contentParts }],
+        modalities: ["image", "text"],
+      }),
+    });
+
+    if (response.ok) {
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.warn(`[generate-slide-images] Empty/invalid JSON response on attempt ${attempt + 1}, retrying...`);
+        lastError = new Error("Empty response from AI");
+        continue;
+      }
+      return data.choices?.[0]?.message?.images?.[0]?.image_url?.url || null;
+    }
+
+    const status = response.status;
+    if (status === 402) throw new Error("Insufficient credits.");
+    if (status === 429 || status === 502 || status === 503) {
+      await response.text();
+      console.warn(`[generate-slide-images] Retryable error ${status} on retry ${retry + 1}`);
+      lastError = new Error(`AI error: ${status}`);
+      continue;
+    }
+
+    const errText = await response.text();
+    console.error(`[generate-slide-images] Non-retryable error ${status}:`, errText.substring(0, 200));
+    throw new Error(`AI image error: ${status}`);
+  }
+
+  throw lastError || new Error("Max retries exceeded");
+}
+
+// ══════ SELF-CHECK: multimodal headline verification ══════
+
+async function selfCheck(
+  apiKey: string,
+  base64Image: string,
+  expectedHeadline: string,
+  language: string,
+): Promise<{ pass: boolean; similarity: number; extractedText?: string }> {
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: base64Image } },
+              {
+                type: "text",
+                text: `Leia a imagem e extraia EXATAMENTE o texto do headline principal (o título grande). Responda APENAS com JSON: {"headline":"texto exato que você lê na imagem"}. Não invente, não corrija — copie exatamente o que está escrito.`,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[selfCheck] API error ${response.status}, skipping check`);
+      return { pass: true, similarity: -1 };
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn("[selfCheck] No JSON in response, skipping");
+      return { pass: true, similarity: -1 };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const extracted = (parsed.headline || "").trim();
+
+    // Normalize for comparison: lowercase, remove extra spaces, punctuation
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-záàâãéèêíïóôõúüç0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+    const a = normalize(expectedHeadline);
+    const b = normalize(extracted);
+
+    // Simple similarity: character overlap ratio
+    const similarity = a.length === 0 ? (b.length === 0 ? 1 : 0) : levenshteinSimilarity(a, b);
+
+    return {
+      pass: similarity >= 0.75,
+      similarity: Math.round(similarity * 100) / 100,
+      extractedText: extracted,
+    };
+  } catch (err) {
+    console.warn("[selfCheck] Error, skipping:", err);
+    return { pass: true, similarity: -1 };
+  }
+}
+
+function levenshteinSimilarity(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  const dist = levenshteinDistance(a, b);
+  return 1 - dist / maxLen;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
 // ══════ HELPERS ══════
 
 /** Strip URLs, domains, and internal metadata from text before sending to AI */
 function sanitizeText(text: string): string {
-  if (!text) return "";
+  if (!text || typeof text !== "string") return "";
   return text
     // Remove full URLs
     .replace(/https?:\/\/[^\s)]+/gi, "")
@@ -379,6 +620,10 @@ function sanitizeText(text: string): string {
     .replace(/utm_[a-z_]+=\S*/gi, "")
     // Remove bare domains (.com, .br, .org etc)
     .replace(/\b\S+\.(com|br|org|net|io|dev|app|biz|info)\b/gi, "")
+    // Remove "Artigo fonte: ..." lines
+    .replace(/Artigo\s+fonte:\s*[^\n]*/gi, "")
+    // Remove "Fonte: ..." lines  
+    .replace(/^Fonte:\s*[^\n]*/gim, "")
     // Remove internal metadata labels
     .replace(/Estilo\/Pilar:\s*"?[^"\n]+"?/gi, "")
     .replace(/Template(Set)?Id:\s*\S+/gi, "")
@@ -402,18 +647,18 @@ function buildPrompt(
   rules?: any,
   visualSignature?: any,
   templateSetName?: string | null,
+  language?: string,
 ): string {
-  const headline = sanitizeText(slide.headline || "");
-  const body = sanitizeText(slide.body || "");
-  const bullets = (slide.bullets || []).map((b: string) => sanitizeText(b));
+  const headline = slide.headline || "";
+  const body = slide.body || "";
+  const bullets = slide.bullets || [];
 
-  // D) Se body for longo, resumir automaticamente
+  // Truncate for image space
   const MAX_BODY_CHARS = 180;
   const truncatedBody = body.length > MAX_BODY_CHARS
     ? body.substring(0, MAX_BODY_CHARS).replace(/\s+\S*$/, "…")
     : body;
 
-  // Headline max 2 lines (~80 chars)
   const MAX_HEADLINE_CHARS = 80;
   const truncatedHeadline = headline.length > MAX_HEADLINE_CHARS
     ? headline.substring(0, MAX_HEADLINE_CHARS).replace(/\s+\S*$/, "…")
@@ -426,10 +671,9 @@ function buildPrompt(
 
   const slideText = textParts.join("\n\n");
 
-  // Sanitize article content
   const articleSnippet = articleContent ? sanitizeText(articleContent.substring(0, 400)) : "";
 
-  // Build style constraints from rules/visual_signature
+  // Build style constraints
   let styleConstraints = "";
   if (rules || visualSignature) {
     const parts: string[] = [];
@@ -447,17 +691,27 @@ function buildPrompt(
     styleConstraints = parts.length > 0 ? `\n\nREGRAS DE ESTILO (obrigatórias):\n${parts.join("\n")}` : "";
   }
 
+  const lang = language || "pt-BR";
+
   return `Crie o slide ${slideIndex + 1} de ${totalSlides} de um carrossel de Instagram sobre este conteúdo, seguindo EXATAMENTE o mesmo estilo visual das imagens de referência anexadas.
 
-Texto do slide (em PT-BR, escreva exatamente como está, com acentos e ortografia corretos):
-${slideText}
-${articleSnippet ? `\nContexto adicional:\n${articleSnippet}` : ""}
+TEXTO DO SLIDE (idioma: ${lang}):
+Copie o texto EXATAMENTE como fornecido abaixo. NÃO traduza, NÃO reescreva, NÃO corrija, NÃO mude letras ou acentos. Se não couber, reduza o tamanho da fonte e quebre a linha, mas mantenha o texto IDÊNTICO caractere por caractere.
+
+---HEADLINE---
+${truncatedHeadline}
+---BODY---
+${truncatedBody}
+${bullets.length > 0 ? `---BULLETS---\n${bullets.slice(0, 5).join("\n")}` : ""}
+---FIM DO TEXTO---
+
+${articleSnippet ? `\nContexto adicional (NÃO incluir na imagem):\n${articleSnippet}` : ""}
 ${styleConstraints}
 
 REGRAS OBRIGATÓRIAS:
 - Replique EXATAMENTE o estilo, layout, cores, tipografia, mockups, cards, faixas, shapes e elementos estruturais das referências.
-- O texto DEVE estar em português do Brasil com acentos corretos (á, é, í, ó, ú, ã, õ, ç). NUNCA troque acentos por caracteres estranhos.
-- Headline: máximo 2 linhas de texto.
+- O texto DEVE ser copiado LITERALMENTE — cada letra, cada acento (á, é, í, ó, ú, ã, õ, ç, ê, â) deve ser idêntico ao fornecido acima.
+- Headline: máximo 2 linhas de texto. Se não couber, reduza a fonte.
 - Body: se for longo, resuma mantendo o sentido — nunca corte no meio de uma palavra.
 - Safe area OBRIGATÓRIA: margem mínima de 80px em TODAS as bordas. NENHUM texto pode ser cortado.
 - O slide deve ter formato portrait (4:5, 1080×1350px).
@@ -470,8 +724,9 @@ PROIBIÇÕES ABSOLUTAS (violar qualquer uma é INACEITÁVEL):
 - NUNCA escreva "Artigo fonte", "Fonte:", "www.", ".com", ".br" ou qualquer referência a sites.
 - NUNCA inclua metadados como "Estilo/Pilar:", "Template:", "Role:", "SetId:", "TemplateSetId:" na imagem.
 - NUNCA inclua @handles de redes sociais inventados.
-- NUNCA inclua texto em inglês — TODO texto deve ser em português.
-- O ÚNICO texto permitido na imagem é o headline, body e bullets fornecidos acima.
+- NUNCA inclua texto em outro idioma que não ${lang} — TODO texto deve ser em ${lang}.
+- O ÚNICO texto permitido na imagem é o headline, body e bullets fornecidos acima entre ---HEADLINE--- e ---FIM DO TEXTO---.
+- NUNCA altere a ortografia do texto fornecido. Se está escrito "VELOCIDADE", não escreva "VEICICIDADE".
 
 Responda APENAS com a imagem gerada. Sem texto adicional fora da arte.`;
 }
