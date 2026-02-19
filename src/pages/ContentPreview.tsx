@@ -396,6 +396,7 @@ const ContentPreview = () => {
     }
 
     // Brand mode — use generate-slide-images (same as Studio)
+    const isOverlayMode = !!slide.background_image_url || slide.render_mode === "ai_bg_overlay";
     setGeneratingPreview(true);
     setCurrentSlide(index);
     try {
@@ -409,10 +410,21 @@ const ContentPreview = () => {
           contentFormat: content?.content_type || "carousel",
           contentId: `dashboard-${id}-${Date.now()}`,
           templateSetId,
+          backgroundOnly: isOverlayMode,
         },
       });
       if (error) throw error;
-      if (data?.imageUrl) {
+      if (isOverlayMode && data?.bgImageUrl) {
+        const updatedSlides = [...slides];
+        updatedSlides[index] = {
+          ...updatedSlides[index],
+          background_image_url: data.bgImageUrl,
+          overlay: { headline: slide.headline, body: slide.body, bullets: slide.bullets },
+          render_mode: "ai_bg_overlay" as const,
+          image_stale: false,
+        };
+        setSlides(updatedSlides);
+      } else if (data?.imageUrl) {
         const updatedSlides = [...slides];
         updatedSlides[index] = { ...updatedSlides[index], image_url: data.imageUrl, previewImage: data.imageUrl, image_stale: false };
         setSlides(updatedSlides);
@@ -462,6 +474,8 @@ const ContentPreview = () => {
       // Brand mode — batch with generate-slide-images (same as Studio)
       const templateSetId = (content as any)?.template_set_id || undefined;
       const contentId = `dashboard-${id}-${Date.now()}`;
+      // Check if any slide already uses overlay mode
+      const isOverlayMode = slides.some(s => s.background_image_url || s.render_mode === "ai_bg_overlay");
       let completedCount = 0;
       const batchSize = 2;
 
@@ -478,10 +492,21 @@ const ContentPreview = () => {
               contentFormat: content?.content_type || "carousel",
               contentId,
               templateSetId,
+              backgroundOnly: isOverlayMode,
             },
           }).then(result => {
             completedCount++;
-            if (result.data?.imageUrl) {
+            if (isOverlayMode && result.data?.bgImageUrl) {
+              setSlides(prev => prev.map((sl, idx) =>
+                idx === i ? {
+                  ...sl,
+                  background_image_url: result.data.bgImageUrl,
+                  overlay: { headline: sl.headline, body: sl.body, bullets: sl.bullets },
+                  render_mode: "ai_bg_overlay" as const,
+                  image_stale: false,
+                } : sl
+              ));
+            } else if (result.data?.imageUrl) {
               setSlides(prev => prev.map((sl, idx) =>
                 idx === i ? { ...sl, image_url: result.data.imageUrl, previewImage: result.data.imageUrl } : sl
               ));
@@ -669,9 +694,52 @@ const ContentPreview = () => {
             </div>
 
             {(() => {
-              const currentSlideSrc = slides[currentSlide]?.image_url;
+              const currentSlideData = slides[currentSlide];
+              const hasBgOverlay = !!currentSlideData?.background_image_url;
+              const currentSlideSrc = currentSlideData?.image_url;
+              const previewDims = {
+                width: 1080,
+                height: content.content_type === "story" ? 1920 : 1350,
+              };
 
-              // If there's a generated image, show it directly (no scale transform = crisp)
+              // Priority 1: BG Overlay mode (background + text overlay)
+              if (hasBgOverlay) {
+                return (
+                  <div className="flex justify-center">
+                    <div className="relative mx-auto" style={{ width: 320 }}>
+                      <div className="rounded-[2.5rem] border-[6px] border-muted-foreground/20 bg-muted/30 p-2 shadow-2xl">
+                        <div className="mx-auto mb-2 h-5 w-28 rounded-full bg-muted-foreground/15" />
+                        <div className="overflow-hidden rounded-[1.5rem] bg-background" style={{ aspectRatio: content.content_type === "story" ? "9/16" : "4/5" }}>
+                          <div style={{
+                            transform: `scale(${308 / previewDims.width})`,
+                            transformOrigin: "top left",
+                            width: previewDims.width,
+                            height: previewDims.height,
+                          }}>
+                            <SlideBgOverlayRenderer
+                              backgroundImageUrl={currentSlideData.background_image_url!}
+                              overlay={currentSlideData.overlay || {
+                                headline: currentSlideData.headline,
+                                body: currentSlideData.body,
+                                bullets: currentSlideData.bullets,
+                              }}
+                              overlayStyle={currentSlideData.overlay_style}
+                              dimensions={previewDims}
+                              role={currentSlideData.role}
+                              slideIndex={currentSlide}
+                              totalSlides={slides.length}
+                              brandSnapshot={content.brand_snapshot as any}
+                            />
+                          </div>
+                        </div>
+                        <div className="mx-auto mt-2 h-1 w-24 rounded-full bg-muted-foreground/20" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Priority 2: Legacy full image
               if (currentSlideSrc) {
                 return (
                   <div className="flex justify-center">
@@ -693,7 +761,7 @@ const ContentPreview = () => {
               }
 
               // Fallback to template renderer (no image yet)
-              if (content?.brand_snapshot && slides[currentSlide]?.templateHint) {
+              if (content?.brand_snapshot && currentSlideData?.templateHint) {
                 return (
                   <div className="flex justify-center">
                     <div className="relative mx-auto" style={{ width: 320 }}>
@@ -701,18 +769,18 @@ const ContentPreview = () => {
                         <div className="mx-auto mb-2 h-5 w-28 rounded-full bg-muted-foreground/15" />
                         <div className="overflow-hidden rounded-[1.5rem] bg-background" style={{ aspectRatio: content.content_type === "story" ? "9/16" : "4/5" }}>
                           <div style={{
-                            transform: `scale(${308 / 1080})`,
+                            transform: `scale(${308 / previewDims.width})`,
                             transformOrigin: "top left",
-                            width: 1080,
-                            height: content.content_type === "story" ? 1920 : 1350,
+                            width: previewDims.width,
+                            height: previewDims.height,
                           }}>
                             <SlideTemplateRenderer
-                              slide={slides[currentSlide]}
+                              slide={currentSlideData}
                               slideIndex={currentSlide}
                               totalSlides={slides.length}
                               brand={content.brand_snapshot as any}
-                              template={slides[currentSlide].templateHint}
-                              dimensions={{ width: 1080, height: content.content_type === "story" ? 1920 : 1350 }}
+                              template={currentSlideData.templateHint}
+                              dimensions={previewDims}
                             />
                           </div>
                         </div>
