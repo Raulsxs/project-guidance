@@ -147,21 +147,7 @@ export default function SlideBgOverlayRenderer({
 
       {/* === Draggable text blocks === */}
 
-      {/* Badge */}
-      {totalSlides > 1 && (
-        <DraggableTextBlock {...blockProps("badge", pos.badge!)}>
-          <div
-            className="inline-block px-3 py-1 rounded-full font-semibold"
-            style={{
-              backgroundColor: accentColor,
-              color: "#fff",
-              fontSize: 14 * fontScale,
-            }}
-          >
-            {isFirstSlide ? "CAPA" : isCta ? "CTA" : `${slideIndex + 1}/${totalSlides}`}
-          </div>
-        </DraggableTextBlock>
-      )}
+      {/* Badge removed — role labels like CAPA/CTA should only appear in the editor UI, not on the slide image */}
 
       {/* Headline */}
       {truncatedHeadline && (
