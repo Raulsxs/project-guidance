@@ -118,7 +118,7 @@ serve(async (req) => {
         debug: {
           styleGalleryId, styleName: galleryStyle.name,
           referencesUsedCount: selectedRefs.length, mode: "style_gallery",
-          image_model: "google/gemini-2.5-flash-image",
+          image_model: "google/gemini-3-pro-image-preview",
           image_generation_ms: Date.now() - t0,
           backgroundOnly: isBgOnly,
         },
@@ -271,7 +271,7 @@ serve(async (req) => {
         templateSetId, templateSetName, categoryId: resolvedCategoryId,
         referencesUsedCount: referenceImageUrls.length, referenceExampleIds,
         fallbackLevel: fallbackLabels[fallbackLevel],
-        image_model: "google/gemini-2.5-flash-image",
+        image_model: "google/gemini-3-pro-image-preview",
         image_generation_ms: Date.now() - t0,
         generated_at: new Date().toISOString(),
         backgroundOnly: isBgOnly,
@@ -308,7 +308,7 @@ async function generateImage(apiKey: string, contentParts: any[]): Promise<strin
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
+        model: "google/gemini-3-pro-image-preview",
         messages: [{ role: "user", content: contentParts }],
         modalities: ["image", "text"],
       }),

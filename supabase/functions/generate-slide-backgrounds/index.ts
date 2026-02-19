@@ -211,7 +211,7 @@ Respond ONLY with the generated background image. No text output.`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash-image",
+          model: "google/gemini-3-pro-image-preview",
           messages: [{ role: "user", content: contentParts }],
           modalities: ["image", "text"],
         }),
@@ -247,7 +247,7 @@ Respond ONLY with the generated background image. No text output.`;
             referencesUsedCount: referenceImageUrls.length,
             referenceExampleIds,
             mode: "ai_bg_overlay",
-            image_model: "google/gemini-2.5-flash-image",
+            image_model: "google/gemini-3-pro-image-preview",
             image_generation_ms: Date.now() - t0,
             generated_at: new Date().toISOString(),
           },
