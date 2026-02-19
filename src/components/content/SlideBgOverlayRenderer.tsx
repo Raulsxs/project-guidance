@@ -87,27 +87,18 @@ export default function SlideBgOverlayRenderer({
         style={{ display: "block" }}
       />
 
-      {/* Text overlay — centered in the card area */}
+      {/* Text overlay — positioned in the lower content area where the background prepared space */}
       <div
-        className="absolute inset-0 flex flex-col justify-center items-center"
+        className="absolute inset-0 flex flex-col justify-end"
         style={{
           paddingTop: safeTop,
           paddingBottom: safeBottom,
-          paddingLeft: 60,
-          paddingRight: 60,
+          paddingLeft: 48,
+          paddingRight: 48,
           textAlign,
         }}
       >
-        {/* Semi-transparent card backdrop for text readability */}
-        <div
-          className="relative z-10 w-full rounded-2xl space-y-4"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(6px)",
-            padding: "32px 28px",
-            maxWidth: "90%",
-          }}
-        >
+        <div className="relative z-10 space-y-3">
           {/* Slide counter badge */}
           {totalSlides > 1 && (
             <div
