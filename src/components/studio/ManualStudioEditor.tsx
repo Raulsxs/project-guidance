@@ -66,6 +66,7 @@ interface SlideData {
   speakerNotes?: string;
   illustrationPrompt?: string;
   imagePrompt?: string;
+  image_stale?: boolean;
 }
 
 // ── Constants ──
@@ -301,7 +302,17 @@ export default function ManualStudioEditor() {
   const updateSlide = (index: number, field: keyof SlideData, value: any) => {
     setSlides(prev => {
       const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
+      const existing = next[index];
+      const isTextField = field === "headline" || field === "body";
+      const hasImage = !!(existing.image_url || existing.previewImage || existing.background_image_url);
+      const textChanged = isTextField && existing[field] !== value;
+
+      next[index] = {
+        ...existing,
+        [field]: value,
+        // Mark image as stale when text changes and image exists
+        ...(textChanged && hasImage ? { image_stale: true } : {}),
+      };
       return next;
     });
   };
@@ -309,9 +320,16 @@ export default function ManualStudioEditor() {
   const updateBullet = (slideIdx: number, bulletIdx: number, value: string) => {
     setSlides(prev => {
       const next = [...prev];
-      const bullets = [...(next[slideIdx].bullets || [])];
+      const existing = next[slideIdx];
+      const bullets = [...(existing.bullets || [])];
+      const hasImage = !!(existing.image_url || existing.previewImage || existing.background_image_url);
+      const changed = bullets[bulletIdx] !== value;
       bullets[bulletIdx] = value;
-      next[slideIdx] = { ...next[slideIdx], bullets };
+      next[slideIdx] = {
+        ...existing,
+        bullets,
+        ...(changed && hasImage ? { image_stale: true } : {}),
+      };
       return next;
     });
   };
@@ -489,11 +507,12 @@ export default function ManualStudioEditor() {
                       background_image_url: result.data.backgroundImageUrl,
                       overlay: { headline: sl.headline, body: sl.body, bullets: sl.bullets },
                       render_mode: "ai_bg_overlay" as const,
+                      image_stale: false,
                     } : sl
                   ));
                 } else if (!isOverlayMode && result.data?.imageUrl) {
                   setSlides(prev => prev.map((sl, idx) =>
-                    idx === i ? { ...sl, image_url: result.data.imageUrl, previewImage: result.data.imageUrl } : sl
+                    idx === i ? { ...sl, image_url: result.data.imageUrl, previewImage: result.data.imageUrl, image_stale: false } : sl
                   ));
                 }
                 return { index: i, data: result.data, error: result.error };
@@ -576,6 +595,7 @@ export default function ManualStudioEditor() {
             articleUrl: notes || undefined,
             contentId: `studio-regen-${Date.now()}`,
             templateSetId: resolvedTsId || undefined,
+            language: "pt-BR",
           },
         });
         if (error) throw error;
@@ -584,6 +604,7 @@ export default function ManualStudioEditor() {
             ...s,
             image_url: i === index ? data.imageUrl : s.image_url,
             previewImage: i === index ? data.imageUrl : s.previewImage,
+            image_stale: i === index ? false : s.image_stale,
           })));
           toast.success("Imagem regenerada!");
         }
@@ -833,6 +854,23 @@ export default function ManualStudioEditor() {
             </div>
           </div>
 
+          {/* Stale image warning */}
+          {slide?.image_stale && (slide?.image_url || slide?.previewImage || slide?.background_image_url) && (
+            <div className="flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2">
+              <Badge variant="outline" className="text-[10px] border-accent/50 text-accent-foreground">Texto mudou</Badge>
+              <span className="text-xs text-muted-foreground flex-1">Imagem desatualizada — regenere para refletir as alterações.</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => handleRegenerateSlideImage(currentSlide)}
+                disabled={generatingImages}
+              >
+                {generatingImages ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                Atualizar imagem
+              </Button>
+            </div>
+          )}
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">Headline</Label>
