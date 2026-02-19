@@ -35,6 +35,7 @@ interface Slide {
   background_image_url?: string;
   overlay?: { headline?: string; body?: string; bullets?: string[]; footer?: string };
   overlay_style?: { safe_area_top?: number; safe_area_bottom?: number; text_align?: "left" | "center"; max_headline_lines?: number; font_scale?: number };
+  overlay_positions?: Record<string, { x: number; y: number }>;
   render_mode?: "legacy_image" | "ai_bg_overlay";
 }
 
@@ -496,6 +497,7 @@ const DownloadPage = () => {
                   bullets: content.slides[renderIndex].bullets,
                 }}
                 overlayStyle={content.slides[renderIndex].overlay_style}
+                overlayPositions={content.slides[renderIndex].overlay_positions}
                 dimensions={dims}
                 role={content.slides[renderIndex].role}
                 slideIndex={renderIndex}
