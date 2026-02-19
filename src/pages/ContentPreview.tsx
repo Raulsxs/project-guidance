@@ -6,6 +6,7 @@ import { useDraft } from "@/hooks/useDraft";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import DraftRestoreModal from "@/components/content/DraftRestoreModal";
 import SlideBgOverlayRenderer from "@/components/content/SlideBgOverlayRenderer";
+import { ENABLE_BG_OVERLAY } from "@/lib/featureFlags";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -396,7 +397,7 @@ const ContentPreview = () => {
     }
 
     // Brand mode — use generate-slide-images (same as Studio)
-    const isOverlayMode = !!slide.background_image_url || slide.render_mode === "ai_bg_overlay";
+    const isOverlayMode = ENABLE_BG_OVERLAY || !!slide.background_image_url || slide.render_mode === "ai_bg_overlay";
     setGeneratingPreview(true);
     setCurrentSlide(index);
     try {
@@ -475,7 +476,7 @@ const ContentPreview = () => {
       const templateSetId = (content as any)?.template_set_id || undefined;
       const contentId = `dashboard-${id}-${Date.now()}`;
       // Check if any slide already uses overlay mode
-      const isOverlayMode = slides.some(s => s.background_image_url || s.render_mode === "ai_bg_overlay");
+      const isOverlayMode = ENABLE_BG_OVERLAY || slides.some(s => s.background_image_url || s.render_mode === "ai_bg_overlay");
       let completedCount = 0;
       const batchSize = 2;
 
@@ -646,7 +647,7 @@ const ContentPreview = () => {
                 ) : (
                   <Wand2 className="w-4 h-4" />
                 )}
-                Gerar Previews ({previewCount}/{slides.length})
+                Gerar {ENABLE_BG_OVERLAY ? "Backgrounds" : "Previews"} ({previewCount}/{slides.length})
               </Button>
             </div>
           </CardContent>
