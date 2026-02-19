@@ -40,13 +40,17 @@ serve(async (req) => {
       templateSetId, categoryId,
       styleGalleryId,
       language: requestLanguage,
+      backgroundOnly, // NEW: when true, generate background without any text
     } = await req.json();
 
     if (!slide) throw new Error("slide object is required");
 
     const language = requestLanguage || "pt-BR";
+    const isBgOnly = !!backgroundOnly;
 
-    // ══════ STYLE GALLERY MODE (takes priority over brand) ══════
+    console.log(`[generate-slide-images] backgroundOnly=${isBgOnly}, slideIndex=${slideIndex}`);
+
+    // ══════ STYLE GALLERY MODE ══════
     if (styleGalleryId) {
       const { data: galleryStyle } = await supabaseAdmin
         .from("system_template_sets")
@@ -70,7 +74,7 @@ serve(async (req) => {
         if (!fallbackRefs || Object.values(fallbackRefs).flat().length === 0) {
           return new Response(JSON.stringify({
             success: false,
-            error: `Estilo "${galleryStyle.name}" não possui referências para o formato "${formatKey}". Gere o pack de imagens primeiro na Galeria de Estilos.`,
+            error: `Estilo "${galleryStyle.name}" não possui referências para o formato "${formatKey}".`,
           }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
@@ -82,44 +86,41 @@ serve(async (req) => {
 
       console.log(`[generate-slide-images] STYLE_GALLERY mode: style="${galleryStyle.name}", format=${formatKey}, role=${role}, refs=${selectedRefs.length}`);
 
-      // Lock text before image generation
-      const lockedText = await lockText(LOVABLE_API_KEY, slide, language);
-      console.log(`[generate-slide-images] Text locked: headline="${lockedText.locked_headline?.substring(0, 40)}...", glossary=[${lockedText.glossary_applied.join(",")}]`);
-
       const contentParts: any[] = [];
       for (const imgUrl of selectedRefs.slice(0, 6)) {
         contentParts.push({ type: "image_url", image_url: { url: imgUrl } });
       }
 
-      const prompt = buildPrompt(
-        { ...slide, headline: lockedText.locked_headline, body: lockedText.locked_body, bullets: lockedText.locked_bullets },
-        slideIndex || 0, totalSlides || 1,
-        null, undefined, articleContent, contentFormat,
-        null, null, galleryStyle.name, language,
-      );
+      const prompt = isBgOnly
+        ? buildBackgroundOnlyPrompt(slide, slideIndex || 0, totalSlides || 1, null, contentFormat, null, null, galleryStyle.name, language)
+        : buildPrompt(
+            { ...slide, headline: sanitizeText(slide.headline || ""), body: sanitizeText(slide.body || ""), bullets: (slide.bullets || []).map((b: string) => sanitizeText(b)) },
+            slideIndex || 0, totalSlides || 1,
+            null, undefined, articleContent, contentFormat,
+            null, null, galleryStyle.name, language,
+          );
       contentParts.push({ type: "text", text: prompt });
 
-      // Generate + self-check loop
-      const result = await generateWithSelfCheck(
-        LOVABLE_API_KEY, contentParts, lockedText.locked_headline, language
-      );
+      const result = await generateImage(LOVABLE_API_KEY, contentParts);
 
-      if (!result.base64Image) {
+      if (!result) {
         return new Response(JSON.stringify({
-          success: true, imageUrl: null,
-          debug: { styleGalleryId, styleName: galleryStyle.name, referencesUsedCount: selectedRefs.length, mode: "style_gallery" },
+          success: true, imageUrl: null, bgImageUrl: null,
+          debug: { styleGalleryId, styleName: galleryStyle.name, referencesUsedCount: selectedRefs.length, mode: "style_gallery", backgroundOnly: isBgOnly },
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const imageUrl = await uploadBase64ToStorage(supabaseAdmin, result.base64Image, contentId || "draft", slideIndex || 0);
+      const imageUrl = await uploadBase64ToStorage(supabaseAdmin, result, contentId || "draft", slideIndex || 0);
       return new Response(JSON.stringify({
-        success: true, imageUrl,
+        success: true,
+        imageUrl: isBgOnly ? null : imageUrl,
+        bgImageUrl: isBgOnly ? imageUrl : null,
         debug: {
           styleGalleryId, styleName: galleryStyle.name,
           referencesUsedCount: selectedRefs.length, mode: "style_gallery",
           image_model: "google/gemini-2.5-flash-image",
           image_generation_ms: Date.now() - t0,
-          text_locked: true, self_check_retried: result.retried,
+          backgroundOnly: isBgOnly,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -211,7 +212,7 @@ serve(async (req) => {
     }
 
     const fallbackLabels = ["exact_category", "category_any_type", "brand_wide"];
-    console.log(`[generate-slide-images] Slide ${(slideIndex || 0) + 1}/${totalSlides || "?"}, refs=${referenceImageUrls.length}, fallback=${fallbackLabels[fallbackLevel]}, templateSet="${templateSetName || 'none'}", categoryId=${resolvedCategoryId || 'none'}`);
+    console.log(`[generate-slide-images] Slide ${(slideIndex || 0) + 1}/${totalSlides || "?"}, refs=${referenceImageUrls.length}, fallback=${fallbackLabels[fallbackLevel]}, templateSet="${templateSetName || 'none'}", bgOnly=${isBgOnly}`);
 
     if (templateSetId && referenceImageUrls.length === 0) {
       return new Response(JSON.stringify({
@@ -223,12 +224,7 @@ serve(async (req) => {
       });
     }
 
-    // ══════ TEXT LOCK: correct spelling before image generation ══════
-    const lockedText = await lockText(LOVABLE_API_KEY, slide, language);
-    console.log(`[generate-slide-images] Text locked: headline="${lockedText.locked_headline?.substring(0, 40)}...", glossary=[${lockedText.glossary_applied.join(",")}]`);
-
     // ══════ EXTRACT STYLE GUIDE ══════
-    const styleGuide = templateSetData?.template_set?.layout_params || null;
     const rules = templateSetData?.template_set?.rules || null;
     const visualSignature = templateSetData?.visual_signature || templateSetData?.template_set?.visual_signature || null;
 
@@ -242,34 +238,35 @@ serve(async (req) => {
       });
     }
 
-    // Use locked text in the prompt
-    const prompt = buildPrompt(
-      { ...slide, headline: lockedText.locked_headline, body: lockedText.locked_body, bullets: lockedText.locked_bullets },
-      slideIndex || 0, totalSlides || 1,
-      brandInfo, undefined, articleContent, contentFormat,
-      rules, visualSignature, templateSetName, language,
-    );
+    const prompt = isBgOnly
+      ? buildBackgroundOnlyPrompt(slide, slideIndex || 0, totalSlides || 1, brandInfo, contentFormat, rules, visualSignature, templateSetName, language)
+      : buildPrompt(
+          { ...slide, headline: sanitizeText(slide.headline || ""), body: sanitizeText(slide.body || ""), bullets: (slide.bullets || []).map((b: string) => sanitizeText(b)) },
+          slideIndex || 0, totalSlides || 1,
+          brandInfo, undefined, articleContent, contentFormat,
+          rules, visualSignature, templateSetName, language,
+        );
     contentParts.push({ type: "text", text: prompt });
 
-    // ══════ GENERATE WITH SELF-CHECK ══════
-    const result = await generateWithSelfCheck(
-      LOVABLE_API_KEY, contentParts, lockedText.locked_headline, language
-    );
+    // ══════ GENERATE IMAGE ══════
+    const base64Image = await generateImage(LOVABLE_API_KEY, contentParts);
 
-    if (!result.base64Image) {
+    if (!base64Image) {
       return new Response(JSON.stringify({
-        success: true, imageUrl: null,
-        debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel] },
+        success: true, imageUrl: null, bgImageUrl: null,
+        debug: { templateSetId, templateSetName, categoryId: resolvedCategoryId, referencesUsedCount: referenceImageUrls.length, referenceExampleIds, fallbackLevel: fallbackLabels[fallbackLevel], backgroundOnly: isBgOnly },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const imageUrl = await uploadBase64ToStorage(supabaseAdmin, result.base64Image, contentId || "draft", slideIndex || 0);
-    console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded${result.retried ? " (after self-check retry)" : ""}`);
+    const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
+    console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded (bgOnly=${isBgOnly})`);
 
     return new Response(JSON.stringify({
-      success: true, imageUrl,
+      success: true,
+      imageUrl: isBgOnly ? null : imageUrl,
+      bgImageUrl: isBgOnly ? imageUrl : null,
       debug: {
         templateSetId, templateSetName, categoryId: resolvedCategoryId,
         referencesUsedCount: referenceImageUrls.length, referenceExampleIds,
@@ -277,9 +274,7 @@ serve(async (req) => {
         image_model: "google/gemini-2.5-flash-image",
         image_generation_ms: Date.now() - t0,
         generated_at: new Date().toISOString(),
-        text_locked: true,
-        self_check_retried: result.retried,
-        locked_headline: lockedText.locked_headline,
+        backgroundOnly: isBgOnly,
       },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -295,177 +290,9 @@ serve(async (req) => {
   }
 });
 
-// ══════ TEXT LOCK: spelling correction + standardization ══════
+// ══════ GENERATE IMAGE (simple, no self-check for bg-only) ══════
 
-async function lockText(
-  apiKey: string,
-  slide: any,
-  language: string,
-): Promise<{
-  locked_headline: string;
-  locked_body: string;
-  locked_bullets: string[];
-  locked_cta: string;
-  language: string;
-  glossary_applied: string[];
-}> {
-  const rawHeadline = sanitizeText(slide.headline || "");
-  const rawBody = sanitizeText(slide.body || "");
-  const rawBullets = (slide.bullets || []).map((b: string) => sanitizeText(b));
-  const rawCta = slide.role === "cta" ? sanitizeText(slide.body || "") : "";
-
-  // If no text at all, skip the API call
-  if (!rawHeadline && !rawBody && rawBullets.length === 0) {
-    return {
-      locked_headline: rawHeadline,
-      locked_body: rawBody,
-      locked_bullets: rawBullets,
-      locked_cta: rawCta,
-      language,
-      glossary_applied: [],
-    };
-  }
-
-  try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          {
-            role: "system",
-            content: `Você é um corretor ortográfico estrito para ${language}. Sua ÚNICA tarefa é:
-1. Corrigir erros de ortografia e acentuação (á, é, í, ó, ú, ã, õ, ç, ê, â).
-2. Padronizar termos recorrentes: "Tendência" (com ê), "Carrossel", "Inteligência Artificial", "Ressonância".
-3. Manter caixa alta (UPPERCASE) se o original estiver em caixa alta.
-4. Remover URLs, domínios, "Artigo fonte:", "Estilo/Pilar:", metadados técnicos.
-5. NÃO traduzir, NÃO reescrever, NÃO mudar estilo ou sentido.
-6. NÃO adicionar texto novo.
-
-Responda APENAS com JSON válido no formato:
-{"locked_headline":"...","locked_body":"...","locked_bullets":["..."],"locked_cta":"...","glossary_applied":["termo1","termo2"]}`,
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              headline: rawHeadline,
-              body: rawBody,
-              bullets: rawBullets,
-              cta: rawCta,
-            }),
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn(`[lockText] API error ${response.status}, using raw text`);
-      return {
-        locked_headline: rawHeadline,
-        locked_body: rawBody,
-        locked_bullets: rawBullets,
-        locked_cta: rawCta,
-        language,
-        glossary_applied: [],
-      };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-
-    // Extract JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.warn("[lockText] No JSON found in response, using raw text");
-      return {
-        locked_headline: rawHeadline,
-        locked_body: rawBody,
-        locked_bullets: rawBullets,
-        locked_cta: rawCta,
-        language,
-        glossary_applied: [],
-      };
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      locked_headline: parsed.locked_headline || rawHeadline,
-      locked_body: parsed.locked_body || rawBody,
-      locked_bullets: parsed.locked_bullets || rawBullets,
-      locked_cta: parsed.locked_cta || rawCta,
-      language,
-      glossary_applied: parsed.glossary_applied || [],
-    };
-  } catch (err) {
-    console.warn("[lockText] Error, falling back to raw text:", err);
-    return {
-      locked_headline: rawHeadline,
-      locked_body: rawBody,
-      locked_bullets: rawBullets,
-      locked_cta: rawCta,
-      language,
-      glossary_applied: [],
-    };
-  }
-}
-
-// ══════ GENERATE WITH SELF-CHECK ══════
-
-async function generateWithSelfCheck(
-  apiKey: string,
-  contentParts: any[],
-  expectedHeadline: string,
-  language: string,
-): Promise<{ base64Image: string | null; retried: boolean }> {
-  let retried = false;
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const base64Image = await callImageModel(apiKey, contentParts, attempt);
-
-    if (!base64Image) {
-      return { base64Image: null, retried: false };
-    }
-
-    // Skip self-check if headline is too short or empty
-    if (!expectedHeadline || expectedHeadline.length < 5) {
-      return { base64Image, retried };
-    }
-
-    // Self-check: only on first attempt
-    if (attempt === 0) {
-      const checkResult = await selfCheck(apiKey, base64Image, expectedHeadline, language);
-      if (checkResult.pass) {
-        console.log(`[selfCheck] ✅ Headline matches (similarity=${checkResult.similarity})`);
-        return { base64Image, retried: false };
-      }
-
-      console.warn(`[selfCheck] ⚠️ Headline divergence detected (similarity=${checkResult.similarity}). Expected: "${expectedHeadline.substring(0, 40)}", Got: "${checkResult.extractedText?.substring(0, 40)}". Retrying...`);
-      retried = true;
-
-      // Reinforce the prompt for retry
-      const lastPart = contentParts[contentParts.length - 1];
-      if (lastPart?.type === "text") {
-        contentParts[contentParts.length - 1] = {
-          type: "text",
-          text: lastPart.text + `\n\n⚠️ ATENÇÃO CRÍTICA: Na tentativa anterior o texto do headline saiu ERRADO. O headline DEVE ser EXATAMENTE: "${expectedHeadline}". Copie LETRA POR LETRA, incluindo acentos. QUALQUER alteração é INACEITÁVEL.`,
-        };
-      }
-      continue;
-    }
-
-    // Second attempt: return whatever we got
-    return { base64Image, retried: true };
-  }
-
-  return { base64Image: null, retried };
-}
-
-async function callImageModel(apiKey: string, contentParts: any[], attempt: number): Promise<string | null> {
-  // Retry logic for transient errors
+async function generateImage(apiKey: string, contentParts: any[]): Promise<string | null> {
   let lastError: Error | null = null;
   for (let retry = 0; retry < 3; retry++) {
     if (retry > 0) {
@@ -493,7 +320,7 @@ async function callImageModel(apiKey: string, contentParts: any[], attempt: numb
       try {
         data = JSON.parse(responseText);
       } catch {
-        console.warn(`[generate-slide-images] Empty/invalid JSON response on attempt ${attempt + 1}, retrying...`);
+        console.warn(`[generate-slide-images] Empty/invalid JSON response, retrying...`);
         lastError = new Error("Empty response from AI");
         continue;
       }
@@ -517,124 +344,99 @@ async function callImageModel(apiKey: string, contentParts: any[], attempt: numb
   throw lastError || new Error("Max retries exceeded");
 }
 
-// ══════ SELF-CHECK: multimodal headline verification ══════
-
-async function selfCheck(
-  apiKey: string,
-  base64Image: string,
-  expectedHeadline: string,
-  language: string,
-): Promise<{ pass: boolean; similarity: number; extractedText?: string }> {
-  try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: base64Image } },
-              {
-                type: "text",
-                text: `Leia a imagem e extraia EXATAMENTE o texto do headline principal (o título grande). Responda APENAS com JSON: {"headline":"texto exato que você lê na imagem"}. Não invente, não corrija — copie exatamente o que está escrito.`,
-              },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn(`[selfCheck] API error ${response.status}, skipping check`);
-      return { pass: true, similarity: -1 };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.warn("[selfCheck] No JSON in response, skipping");
-      return { pass: true, similarity: -1 };
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    const extracted = (parsed.headline || "").trim();
-
-    // Normalize for comparison: lowercase, remove extra spaces, punctuation
-    const normalize = (s: string) => s.toLowerCase().replace(/[^a-záàâãéèêíïóôõúüç0-9\s]/gi, "").replace(/\s+/g, " ").trim();
-    const a = normalize(expectedHeadline);
-    const b = normalize(extracted);
-
-    // Simple similarity: character overlap ratio
-    const similarity = a.length === 0 ? (b.length === 0 ? 1 : 0) : levenshteinSimilarity(a, b);
-
-    return {
-      pass: similarity >= 0.75,
-      similarity: Math.round(similarity * 100) / 100,
-      extractedText: extracted,
-    };
-  } catch (err) {
-    console.warn("[selfCheck] Error, skipping:", err);
-    return { pass: true, similarity: -1 };
-  }
-}
-
-function levenshteinSimilarity(a: string, b: string): number {
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1;
-  const dist = levenshteinDistance(a, b);
-  return 1 - dist / maxLen;
-}
-
-function levenshteinDistance(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-    }
-  }
-  return dp[m][n];
-}
-
 // ══════ HELPERS ══════
 
-/** Strip URLs, domains, and internal metadata from text before sending to AI */
+/** Strip URLs, domains, and internal metadata from text */
 function sanitizeText(text: string): string {
   if (!text || typeof text !== "string") return "";
   return text
-    // Remove full URLs
     .replace(/https?:\/\/[^\s)]+/gi, "")
-    // Remove www. domains
     .replace(/www\.[^\s)]+/gi, "")
-    // Remove utm_ params remnants
     .replace(/utm_[a-z_]+=\S*/gi, "")
-    // Remove bare domains (.com, .br, .org etc)
     .replace(/\b\S+\.(com|br|org|net|io|dev|app|biz|info)\b/gi, "")
-    // Remove "Artigo fonte: ..." lines
     .replace(/Artigo\s+fonte:\s*[^\n]*/gi, "")
-    // Remove "Fonte: ..." lines  
     .replace(/^Fonte:\s*[^\n]*/gim, "")
-    // Remove internal metadata labels
     .replace(/Estilo\/Pilar:\s*"?[^"\n]+"?/gi, "")
     .replace(/Template(Set)?Id:\s*\S+/gi, "")
     .replace(/Role:\s*\S+/gi, "")
     .replace(/SetId:\s*\S+/gi, "")
-    // Clean up extra whitespace
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-// ══════ PROMPT BUILDER ══════
+// ══════ BACKGROUND-ONLY PROMPT ══════
+
+function buildBackgroundOnlyPrompt(
+  slide: any,
+  slideIndex: number,
+  totalSlides: number,
+  brandInfo: any,
+  contentFormat?: string,
+  rules?: any,
+  visualSignature?: any,
+  templateSetName?: string | null,
+  language?: string,
+): string {
+  const role = slide.role || "content";
+  const isStory = contentFormat === "story";
+  const dimensions = isStory ? "1080×1920" : "1080×1350";
+  const aspectRatio = isStory ? "9:16" : "4:5";
+
+  // Build style constraints from rules/visual signature
+  let styleConstraints = "";
+  if (rules || visualSignature) {
+    const parts: string[] = [];
+    if (rules?.waves === false) parts.push("NÃO use ondas/curvas.");
+    if (rules?.waves === true) parts.push("Inclua curva ondulada decorativa.");
+    if (rules?.phone_mockup === true) parts.push("Inclua mockup de celular quando aplicável.");
+    if (rules?.phone_mockup === false) parts.push("NÃO use mockup de celular.");
+    if (rules?.body_in_card === true) parts.push("Área de card/caixa para texto futuro (overlay).");
+    if (rules?.inner_frame === true) parts.push("Use moldura interna decorativa.");
+    if (visualSignature?.primary_bg_mode) parts.push(`Fundo: ${visualSignature.primary_bg_mode}.`);
+    if (visualSignature?.card_style && visualSignature.card_style !== "none") parts.push(`Estilo de card: ${visualSignature.card_style}.`);
+    if (visualSignature?.decorative_shape && visualSignature.decorative_shape !== "none") parts.push(`Forma decorativa: ${visualSignature.decorative_shape}.`);
+    styleConstraints = parts.length > 0 ? `\nREGRAS DE ESTILO:\n${parts.join("\n")}` : "";
+  }
+
+  // Describe the role so AI knows what kind of background to generate
+  const roleDescriptions: Record<string, string> = {
+    cover: "Este é o slide de CAPA — fundo impactante, área limpa na parte inferior para headline grande.",
+    context: "Slide de contexto — fundo com elementos visuais sutis, área ampla para texto.",
+    insight: "Slide de insight — fundo que comunica destaque/importância.",
+    bullets: "Slide de bullets/tópicos — fundo limpo com área para lista de itens.",
+    cta: "Slide de CTA (chamada para ação) — fundo que convida à interação, área para botão/texto.",
+    content: "Slide de conteúdo — fundo equilibrado com área para texto.",
+  };
+
+  return `Gere APENAS o BACKGROUND/arte visual do slide ${slideIndex + 1} de ${totalSlides} de um carrossel de Instagram.
+
+ATENÇÃO ABSOLUTA: Esta imagem deve conter ZERO TEXTO. Nenhuma letra, nenhuma palavra, nenhum número, nenhum caractere.
+
+${roleDescriptions[role] || roleDescriptions.content}
+
+REQUISITOS:
+- Formato: ${aspectRatio} portrait (${dimensions}px)
+- Replique EXATAMENTE o estilo visual, cores, gradientes, formas, shapes e elementos decorativos das imagens de referência anexadas.
+- Reserve uma "safe area" de texto: área limpa (sem elementos visuais complexos) na parte inferior do slide (~40% da altura) para sobreposição de texto futuro.
+- Use gradiente escuro sutil na parte inferior para garantir contraste com texto branco.
+- Mantenha consistência visual entre todos os slides do carrossel.
+${styleConstraints}
+
+PROIBIÇÕES ABSOLUTAS:
+- NENHUM texto de qualquer tipo (nem título, nem subtítulo, nem número, nem bullet, nem palavra).
+- NENHUMA letra do alfabeto em nenhum idioma.
+- NENHUM URL, domínio, @handle, hashtag.
+- NENHUM número de slide (1/8, 2/8 etc).
+- NENHUM logo com texto.
+- NENHUM QR code.
+- Se as referências contêm texto, IGNORE o texto e replique APENAS os elementos visuais/decorativos.
+
+A imagem deve ser PURAMENTE visual: formas, gradientes, ilustrações, ícones sem texto, mockups, padrões, fotos.
+
+Responda APENAS com a imagem gerada.`;
+}
+
+// ══════ LEGACY PROMPT (with text) ══════
 
 function buildPrompt(
   slide: any,
@@ -653,7 +455,6 @@ function buildPrompt(
   const body = slide.body || "";
   const bullets = slide.bullets || [];
 
-  // Truncate for image space
   const MAX_BODY_CHARS = 180;
   const truncatedBody = body.length > MAX_BODY_CHARS
     ? body.substring(0, MAX_BODY_CHARS).replace(/\s+\S*$/, "…")
@@ -664,16 +465,8 @@ function buildPrompt(
     ? headline.substring(0, MAX_HEADLINE_CHARS).replace(/\s+\S*$/, "…")
     : headline;
 
-  const textParts: string[] = [];
-  if (truncatedHeadline) textParts.push(truncatedHeadline);
-  if (truncatedBody) textParts.push(truncatedBody);
-  if (bullets.length > 0) textParts.push(bullets.slice(0, 5).join("\n"));
-
-  const slideText = textParts.join("\n\n");
-
   const articleSnippet = articleContent ? sanitizeText(articleContent.substring(0, 400)) : "";
 
-  // Build style constraints
   let styleConstraints = "";
   if (rules || visualSignature) {
     const parts: string[] = [];
