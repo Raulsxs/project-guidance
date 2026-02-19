@@ -87,9 +87,9 @@ export default function SlideBgOverlayRenderer({
         style={{ display: "block" }}
       />
 
-      {/* Text overlay */}
+      {/* Text overlay — centered in the card area */}
       <div
-        className="absolute inset-0 flex flex-col justify-end"
+        className="absolute inset-0 flex flex-col justify-center items-center"
         style={{
           paddingTop: safeTop,
           paddingBottom: safeBottom,
@@ -98,17 +98,16 @@ export default function SlideBgOverlayRenderer({
           textAlign,
         }}
       >
-        {/* Subtle gradient scrim for text readability — only at the bottom */}
+        {/* Semi-transparent card backdrop for text readability */}
         <div
-          className="absolute bottom-0 left-0 right-0"
+          className="relative z-10 w-full rounded-2xl space-y-4"
           style={{
-            height: "60%",
-            background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 50%, transparent 100%)",
-            pointerEvents: "none",
+            backgroundColor: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(6px)",
+            padding: "32px 28px",
+            maxWidth: "90%",
           }}
-        />
-
-        <div className="relative z-10 space-y-4">
+        >
           {/* Slide counter badge */}
           {totalSlides > 1 && (
             <div
