@@ -630,18 +630,20 @@ ${templateAssignments}
 COMPRIMENTOS OBRIGATÓRIOS (respeite rigorosamente):
 - caption: ${contentStyle === "quote" ? "250–500" : "900–1600"} caracteres
   ${contentStyle !== "quote" ? "Estrutura da caption: gancho provocativo → contexto do artigo → 3 aprendizados práticos → 1 recomendação acionável → CTA leve" : ""}
-- headline: ${textLimits.headline[0]}–${textLimits.headline[1]} caracteres (impactante, criativo)
-- body: ${textLimits.body[0]}–${textLimits.body[1]} caracteres (denso e informativo, NÃO genérico)
+- headline: ${textLimits.headline[0]}–${textLimits.headline[1]} caracteres (impactante, criativo, GRANDE e chamativo)
+- body: ${textLimits.body[0]}–${Math.max(textLimits.body[1], 300)} caracteres (DENSO, LONGO e informativo — extraia dados reais, contexto e exemplos concretos da fonte. NÃO seja genérico. O texto do body deve ocupar espaço significativo no slide.)
+- bullets: 3–5 items de 40–80 caracteres cada (acionáveis, específicos, com dados da fonte)
 - speakerNotes: 2–3 frases (insight extra criativo, NÃO vai para arte)
 - sourceSummary: 4–6 linhas resumindo a fonte original com os pontos-chave
 - keyInsights: 3–5 insights PRÁTICOS extraídos da fonte (não genéricos)
 
-QUALIDADE DO TEXTO:
-- Headlines devem ser ganchos criativos (pergunta, contraste, dado surpreendente)
-- Body deve conter informação DENSA extraída da fonte, não frases genéricas
-- Bullets devem ser acionáveis e específicos
+QUALIDADE DO TEXTO (PRIORIDADE MÁXIMA):
+- Headlines devem ser ganchos criativos (pergunta, contraste, dado surpreendente) — use CAIXA ALTA quando impactante
+- Body deve conter informação DENSA extraída da fonte: dados, porcentagens, nomes, exemplos reais. NUNCA frases vagas como "é importante considerar..."
+- Bullets devem ser acionáveis e específicos com dados concretos
 - sourceSummary deve demonstrar leitura profunda do artigo
 - keyInsights devem ser conclusões práticas, não obviedades
+- Se a fonte tiver dados numéricos (%, R$, quantidades), USE-OS nos textos
 
 Retorne EXATAMENTE este JSON (sem markdown, sem backticks):
 {

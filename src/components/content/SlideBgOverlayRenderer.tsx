@@ -52,13 +52,23 @@ interface SlideBgOverlayRendererProps {
 
 // Default positions (percentage-based) for auto-layout fallback
 function getDefaultPositions(role?: string): OverlayPositions {
+  if (role === "cover") {
+    return {
+      badge:    { x: 5, y: 8 },
+      headline: { x: 5, y: 25 },
+      body:     { x: 5, y: 50 },
+      bullets:  { x: 5, y: 55 },
+      cta:      { x: 5, y: 78 },
+      footer:   { x: 5, y: 90 },
+    };
+  }
   return {
-    badge:    { x: 4, y: 52 },
-    headline: { x: 4, y: 56 },
-    body:     { x: 4, y: 68 },
-    bullets:  { x: 4, y: 62 },
-    cta:      { x: 4, y: 80 },
-    footer:   { x: 4, y: 90 },
+    badge:    { x: 5, y: 4 },
+    headline: { x: 5, y: 8 },
+    body:     { x: 5, y: 25 },
+    bullets:  { x: 5, y: 22 },
+    cta:      { x: 5, y: 78 },
+    footer:   { x: 5, y: 90 },
   };
 }
 
@@ -89,14 +99,14 @@ export default function SlideBgOverlayRenderer({
   const isFirstSlide = slideIndex === 0;
   const isCta = role === "cta";
 
-  // Truncation
-  const maxHeadlineChars = maxHeadlineLines * 40;
+  // Truncation — allow more text to show rich content
+  const maxHeadlineChars = maxHeadlineLines * 50;
   const truncatedHeadline =
     overlay.headline && overlay.headline.length > maxHeadlineChars
       ? overlay.headline.substring(0, maxHeadlineChars).replace(/\s+\S*$/, "…")
       : overlay.headline;
 
-  const maxBodyChars = role === "cover" ? 120 : 200;
+  const maxBodyChars = role === "cover" ? 250 : 450;
   const truncatedBody =
     overlay.body && overlay.body.length > maxBodyChars
       ? overlay.body.substring(0, maxBodyChars).replace(/\s+\S*$/, "…")
@@ -144,13 +154,12 @@ export default function SlideBgOverlayRenderer({
         />
       )}
 
-      {/* Subtle bottom scrim for readability */}
+      {/* Full-slide scrim for readability over any background */}
       <div
-        className="absolute bottom-0 left-0 right-0 pointer-events-none"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          height: "55%",
           background:
-            "linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)",
+            "linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.15) 30%, rgba(0,0,0,0.25) 60%, rgba(0,0,0,0.65) 100%)",
         }}
       />
 
@@ -164,16 +173,14 @@ export default function SlideBgOverlayRenderer({
           <h2
             style={{
               fontFamily: headingFont,
-              fontSize: 36 * fontScale,
+              fontSize: (isFirstSlide ? 52 : 44) * fontScale,
               fontWeight: 800,
               lineHeight: 1.15,
               color: "#ffffff",
-              textShadow: "0 2px 8px rgba(0,0,0,0.5)",
+              textShadow: "0 2px 12px rgba(0,0,0,0.6), 0 1px 3px rgba(0,0,0,0.4)",
               textAlign,
-              WebkitLineClamp: maxHeadlineLines,
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical" as any,
-              overflow: "hidden",
+              maxWidth: "90%",
+              letterSpacing: "-0.02em",
             }}
           >
             {truncatedHeadline}
@@ -187,12 +194,13 @@ export default function SlideBgOverlayRenderer({
           <p
             style={{
               fontFamily: bodyFont,
-              fontSize: 20 * fontScale,
+              fontSize: 26 * fontScale,
               fontWeight: 400,
-              lineHeight: 1.5,
-              color: "rgba(255,255,255,0.9)",
-              textShadow: "0 1px 4px rgba(0,0,0,0.4)",
+              lineHeight: 1.55,
+              color: "rgba(255,255,255,0.95)",
+              textShadow: "0 1px 6px rgba(0,0,0,0.5)",
               textAlign,
+              maxWidth: "90%",
             }}
           >
             {truncatedBody}
@@ -203,19 +211,20 @@ export default function SlideBgOverlayRenderer({
       {/* Bullets */}
       {overlay.bullets && overlay.bullets.length > 0 && (
         <DraggableTextBlock {...blockProps("bullets", pos.bullets!)}>
-          <ul className="space-y-2" style={{ paddingLeft: 8 }}>
+          <ul className="space-y-3" style={{ paddingLeft: 8, maxWidth: "90%" }}>
             {overlay.bullets.slice(0, 5).map((bullet, i) => (
               <li
                 key={i}
-                className="flex items-start gap-2"
+                className="flex items-start gap-3"
                 style={{
                   fontFamily: bodyFont,
-                  fontSize: 18 * fontScale,
-                  color: "rgba(255,255,255,0.9)",
-                  textShadow: "0 1px 4px rgba(0,0,0,0.4)",
+                  fontSize: 24 * fontScale,
+                  lineHeight: 1.4,
+                  color: "rgba(255,255,255,0.95)",
+                  textShadow: "0 1px 6px rgba(0,0,0,0.5)",
                 }}
               >
-                <span style={{ color: accentColor, fontWeight: 700 }}>•</span>
+                <span style={{ color: accentColor, fontWeight: 700, fontSize: 28 * fontScale }}>•</span>
                 {bullet}
               </li>
             ))}
