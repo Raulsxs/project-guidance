@@ -13,6 +13,7 @@ import { Search, RefreshCw, Loader2, Sparkles, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { ENABLE_BG_OVERLAY } from "@/lib/featureFlags";
 
 interface DbTrend {
   id: string;
@@ -389,10 +390,24 @@ const Dashboard = () => {
                 articleContent: selectedTrend?.fullContent || "",
                 contentId,
                 templateSetId: templateSetId || undefined,
+                backgroundOnly: ENABLE_BG_OVERLAY,
               },
             }).then(result => {
               if (result.data?.imageUrl) {
-                generatedSlides[i] = { ...generatedSlides[i], image_url: result.data.imageUrl, previewImage: result.data.imageUrl };
+                if (ENABLE_BG_OVERLAY) {
+                  generatedSlides[i] = {
+                    ...generatedSlides[i],
+                    background_image_url: result.data.imageUrl,
+                    render_mode: "ai_bg_overlay",
+                    overlay: {
+                      headline: generatedSlides[i].headline || "",
+                      body: generatedSlides[i].body || "",
+                      bullets: generatedSlides[i].bullets || [],
+                    },
+                  };
+                } else {
+                  generatedSlides[i] = { ...generatedSlides[i], image_url: result.data.imageUrl, previewImage: result.data.imageUrl };
+                }
               }
               return result;
             });
