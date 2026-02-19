@@ -8,8 +8,6 @@ import { cn } from "@/lib/utils";
 interface Position {
   top?: number;
   left?: number;
-  right?: number;
-  bottom?: number;
 }
 
 const OnboardingOverlay = () => {
@@ -19,20 +17,17 @@ const OnboardingOverlay = () => {
 
   const updatePositions = useCallback(() => {
     if (!isActive || !steps[currentStep]) return;
-
     const step = steps[currentStep];
-    
+
     if (step.target) {
       const element = document.querySelector(step.target);
       if (element) {
         const rect = element.getBoundingClientRect();
         setHighlightRect(rect);
 
-        // Calculate tooltip position based on step position preference
         const padding = 16;
-        const tooltipWidth = 360;
-        const tooltipHeight = 200;
-
+        const tooltipWidth = 400;
+        const tooltipHeight = 220;
         let newPosition: Position = {};
 
         switch (step.position) {
@@ -62,32 +57,30 @@ const OnboardingOverlay = () => {
             break;
         }
 
-        // Ensure tooltip stays within viewport
         const maxLeft = window.innerWidth - tooltipWidth - padding;
         const maxTop = window.innerHeight - tooltipHeight - padding;
-        
-        if (newPosition.left !== undefined) {
-          newPosition.left = Math.min(Math.max(padding, newPosition.left), maxLeft);
-        }
-        if (newPosition.top !== undefined) {
-          newPosition.top = Math.min(Math.max(padding, newPosition.top), maxTop);
-        }
+        if (newPosition.left !== undefined) newPosition.left = Math.min(Math.max(padding, newPosition.left), maxLeft);
+        if (newPosition.top !== undefined) newPosition.top = Math.min(Math.max(padding, newPosition.top), maxTop);
 
         setTooltipPosition(newPosition);
+      } else {
+        // Element not found yet (page still loading), treat as center
+        setHighlightRect(null);
+        setTooltipPosition({});
       }
     } else {
-      // Center position for modal-style steps
       setHighlightRect(null);
       setTooltipPosition({});
     }
   }, [isActive, currentStep, steps]);
 
   useEffect(() => {
-    updatePositions();
+    // Delay to allow route transitions to render
+    const timer = setTimeout(updatePositions, 300);
     window.addEventListener("resize", updatePositions);
     window.addEventListener("scroll", updatePositions);
-
     return () => {
+      clearTimeout(timer);
       window.removeEventListener("resize", updatePositions);
       window.removeEventListener("scroll", updatePositions);
     };
@@ -96,18 +89,16 @@ const OnboardingOverlay = () => {
   if (!isActive || !steps[currentStep]) return null;
 
   const step = steps[currentStep];
-  const isCenter = step.position === "center";
+  const isCenter = !highlightRect;
   const progress = ((currentStep + 1) / steps.length) * 100;
 
   return (
     <div className="fixed inset-0 z-[100] pointer-events-none">
-      {/* Backdrop overlay */}
-      <div 
+      <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto transition-opacity duration-300"
         onClick={skipOnboarding}
       />
 
-      {/* Highlight cutout */}
       {highlightRect && (
         <div
           className="absolute bg-transparent pointer-events-none transition-all duration-300 ease-out"
@@ -123,10 +114,9 @@ const OnboardingOverlay = () => {
         />
       )}
 
-      {/* Tooltip Card */}
       <Card
         className={cn(
-          "absolute w-[360px] shadow-xl pointer-events-auto animate-scale-in",
+          "absolute w-[400px] shadow-xl pointer-events-auto animate-scale-in",
           isCenter && "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
         )}
         style={isCenter ? {} : tooltipPosition}
@@ -139,29 +129,17 @@ const OnboardingOverlay = () => {
               </div>
               <CardTitle className="text-lg font-heading">{step.title}</CardTitle>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-              onClick={skipOnboarding}
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={skipOnboarding}>
               <X className="w-4 h-4" />
             </Button>
           </div>
         </CardHeader>
 
         <CardContent className="pb-4">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {step.description}
-          </p>
-
-          {/* Progress bar */}
+          <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
           <div className="mt-4 flex items-center gap-2">
             <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-300 ease-out"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="h-full bg-primary transition-all duration-300 ease-out" style={{ width: `${progress}%` }} />
             </div>
             <span className="text-xs text-muted-foreground font-medium">
               {currentStep + 1}/{steps.length}
@@ -170,12 +148,7 @@ const OnboardingOverlay = () => {
         </CardContent>
 
         <CardFooter className="pt-0 flex justify-between gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={skipOnboarding}
-            className="text-muted-foreground"
-          >
+          <Button variant="ghost" size="sm" onClick={skipOnboarding} className="text-muted-foreground">
             Pular tour
           </Button>
           <div className="flex gap-2">
@@ -186,9 +159,7 @@ const OnboardingOverlay = () => {
               </Button>
             )}
             <Button size="sm" onClick={nextStep}>
-              {currentStep === steps.length - 1 ? (
-                "Começar!"
-              ) : (
+              {currentStep === steps.length - 1 ? "Começar!" : (
                 <>
                   Próximo
                   <ChevronRight className="w-4 h-4 ml-1" />
