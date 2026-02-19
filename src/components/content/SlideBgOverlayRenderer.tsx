@@ -33,7 +33,7 @@ export interface OverlayPositions {
 }
 
 interface SlideBgOverlayRendererProps {
-  backgroundImageUrl: string;
+  backgroundImageUrl?: string;
   overlay: OverlayData;
   overlayStyle?: OverlayStyle;
   overlayPositions?: OverlayPositions;
@@ -127,13 +127,22 @@ export default function SlideBgOverlayRenderer({
       className={cn("relative overflow-hidden", className)}
       style={{ width: dimensions.width, height: dimensions.height }}
     >
-      {/* Background image */}
-      <img
-        src={backgroundImageUrl}
-        alt=""
-        className="absolute inset-0 w-full h-full object-cover"
-        style={{ display: "block" }}
-      />
+      {/* Background image or gradient fallback */}
+      {backgroundImageUrl ? (
+        <img
+          src={backgroundImageUrl}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ display: "block" }}
+        />
+      ) : (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `linear-gradient(160deg, ${accentColor} 0%, #1a1a2e 100%)`,
+          }}
+        />
+      )}
 
       {/* Subtle bottom scrim for readability */}
       <div

@@ -699,13 +699,14 @@ const ContentPreview = () => {
               const currentSlideData = slides[currentSlide];
               const hasBgOverlay = !!currentSlideData?.background_image_url;
               const currentSlideSrc = currentSlideData?.image_url;
+              const hasText = !!(currentSlideData?.headline || currentSlideData?.body);
               const previewDims = {
                 width: 1080,
                 height: content.content_type === "story" ? 1920 : 1350,
               };
 
-              // Priority 1: BG Overlay mode (background + text overlay)
-              if (hasBgOverlay) {
+              // Priority 1: BG Overlay mode OR any slide with text (shows text on bg image or gradient fallback)
+              if (hasBgOverlay || hasText) {
                 return (
                   <div className="flex justify-center">
                     <div className="relative mx-auto" style={{ width: 320 }}>
@@ -719,7 +720,7 @@ const ContentPreview = () => {
                             height: previewDims.height,
                           }}>
                             <SlideBgOverlayRenderer
-                              backgroundImageUrl={currentSlideData.background_image_url!}
+                              backgroundImageUrl={currentSlideData.background_image_url}
                               overlay={{
                                 headline: currentSlideData.headline,
                                 body: currentSlideData.body,
@@ -754,7 +755,7 @@ const ContentPreview = () => {
                 );
               }
 
-              // Priority 2: Legacy full image
+              // Priority 2: Legacy full image (no text data)
               if (currentSlideSrc) {
                 return (
                   <div className="flex justify-center">
@@ -767,37 +768,6 @@ const ContentPreview = () => {
                             alt={`Slide ${currentSlide + 1}`}
                             className="w-full h-full object-cover"
                           />
-                        </div>
-                        <div className="mx-auto mt-2 h-1 w-24 rounded-full bg-muted-foreground/20" />
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              // Fallback to template renderer (no image yet)
-              if (content?.brand_snapshot && currentSlideData?.templateHint) {
-                return (
-                  <div className="flex justify-center">
-                    <div className="relative mx-auto" style={{ width: 320 }}>
-                      <div className="rounded-[2.5rem] border-[6px] border-muted-foreground/20 bg-muted/30 p-2 shadow-2xl">
-                        <div className="mx-auto mb-2 h-5 w-28 rounded-full bg-muted-foreground/15" />
-                        <div className="overflow-hidden rounded-[1.5rem] bg-background" style={{ aspectRatio: content.content_type === "story" ? "9/16" : "4/5" }}>
-                          <div style={{
-                            transform: `scale(${308 / previewDims.width})`,
-                            transformOrigin: "top left",
-                            width: previewDims.width,
-                            height: previewDims.height,
-                          }}>
-                            <SlideTemplateRenderer
-                              slide={currentSlideData}
-                              slideIndex={currentSlide}
-                              totalSlides={slides.length}
-                              brand={content.brand_snapshot as any}
-                              template={currentSlideData.templateHint}
-                              dimensions={previewDims}
-                            />
-                          </div>
                         </div>
                         <div className="mx-auto mt-2 h-1 w-24 rounded-full bg-muted-foreground/20" />
                       </div>
