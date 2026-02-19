@@ -64,6 +64,7 @@ interface Slide {
   overlay?: { headline?: string; body?: string; bullets?: string[]; footer?: string };
   overlay_style?: { safe_area_top?: number; safe_area_bottom?: number; text_align?: "left" | "center"; max_headline_lines?: number; font_scale?: number };
   render_mode?: "legacy_image" | "ai_bg_overlay";
+  overlay_positions?: Record<string, { x: number; y: number }>;
 }
 
 interface BrandSnapshotData {
@@ -725,6 +726,19 @@ const ContentPreview = () => {
                                 bullets: currentSlideData.bullets,
                               }}
                               overlayStyle={currentSlideData.overlay_style}
+                              overlayPositions={currentSlideData.overlay_positions}
+                              onPositionChange={(key, pos) => {
+                                const updated = [...slides];
+                                updated[currentSlide] = {
+                                  ...updated[currentSlide],
+                                  overlay_positions: {
+                                    ...updated[currentSlide].overlay_positions,
+                                    [key]: pos,
+                                  },
+                                };
+                                setSlides(updated);
+                              }}
+                              editable={true}
                               dimensions={previewDims}
                               role={currentSlideData.role}
                               slideIndex={currentSlide}
