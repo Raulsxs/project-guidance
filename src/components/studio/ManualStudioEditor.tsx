@@ -249,8 +249,9 @@ export default function ManualStudioEditor() {
     saveDraftDebounced();
   }, [saveDraftDebounced]);
 
-  // Handle draft restore
-  const handleRestoreDraft = useCallback(() => {
+  // Silent auto-restore: if there's a pending draft, restore it automatically
+  useEffect(() => {
+    if (!pendingDraft) return;
     const draft = restoreDraft();
     if (!draft) return;
     if (draft.slides) setSlides(draft.slides);
@@ -264,8 +265,8 @@ export default function ManualStudioEditor() {
       if (draft.config.slideCountVal) setSlideCountVal(draft.config.slideCountVal);
       if (draft.config.includeCta !== undefined) setIncludeCta(draft.config.includeCta);
     }
-    toast.success("Rascunho restaurado!");
-  }, [restoreDraft]);
+    toast.success("Rascunho restaurado automaticamente");
+  }, [pendingDraft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Rebuild slides when format/count/CTA/template set changes ──
   useEffect(() => {
@@ -494,12 +495,14 @@ export default function ManualStudioEditor() {
               return supabase.functions.invoke(functionName, { body: bodyPayload }).then(result => {
                 completedCount++;
                 setImageGenProgress(`Gerando ${isOverlayMode ? "backgrounds" : "imagens"} ${completedCount}/${newSlides.length}...`);
-                if (isOverlayMode && result.data?.bgImageUrl) {
+                if (isOverlayMode && (result.data?.bgImageUrl || result.data?.imageUrl)) {
+                  const bgUrl = result.data.bgImageUrl || result.data.imageUrl;
                   setSlides(prev => prev.map((sl, idx) =>
                     idx === i ? {
                       ...sl,
-                      background_image_url: result.data.bgImageUrl,
-                      overlay: { headline: sl.headline, body: sl.body, bullets: sl.bullets },
+                      image_url: bgUrl,
+                      previewImage: bgUrl,
+                      background_image_url: bgUrl,
                       render_mode: "ai_bg_overlay" as const,
                       image_stale: false,
                     } : sl
@@ -568,11 +571,13 @@ export default function ManualStudioEditor() {
         },
       });
       if (error) throw error;
-      if (isOverlayMode && data?.bgImageUrl) {
+      if (isOverlayMode && (data?.bgImageUrl || data?.imageUrl)) {
+        const bgUrl = data.bgImageUrl || data.imageUrl;
         setSlides(prev => prev.map((s, i) => i === index ? {
           ...s,
-          background_image_url: data.bgImageUrl,
-          overlay: { headline: s.headline, body: s.body, bullets: s.bullets },
+          image_url: bgUrl,
+          previewImage: bgUrl,
+          background_image_url: bgUrl,
           render_mode: "ai_bg_overlay" as const,
           image_stale: false,
         } : s));
@@ -653,13 +658,8 @@ export default function ManualStudioEditor() {
 
   return (
     <div className="space-y-6">
-      {/* Draft Restore Modal */}
-      <DraftRestoreModal
-        open={!!pendingDraft}
-        savedAt={pendingDraft?.savedAt || 0}
-        onRestore={handleRestoreDraft}
-        onDiscard={discardDraft}
-      />
+      {/* Silent draft auto-restore — no modal */}
+      {/* Drafts are silently restored on mount via useDraft */}
 
       {/* Config Bar */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -982,7 +982,7 @@ export default function ManualStudioEditor() {
                   >
                     <SlideBgOverlayRenderer
                       backgroundImageUrl={slide.background_image_url}
-                      overlay={slide.overlay || { headline: slide.headline, body: slide.body, bullets: slide.bullets }}
+                      overlay={{ headline: slide.headline, body: slide.body, bullets: slide.bullets }}
                       overlayStyle={slide.overlay_style}
                       dimensions={dims}
                       role={slide.role}

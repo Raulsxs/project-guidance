@@ -122,12 +122,14 @@ const ContentPreview = () => {
     saveToDraft({ slides, caption: content.caption, hashtags: content.hashtags, title: content.title });
   }, [slides, content?.caption, content?.hashtags, content?.title, saveToDraft]);
 
-  const handleRestoreContentDraft = useCallback(() => {
+  // Silent auto-restore draft on mount
+  useEffect(() => {
+    if (!pendingDraft) return;
     const draft = restoreDraft();
     if (!draft) return;
     if (draft.slides) setSlides(normalizeSlides(draft.slides as Slide[]));
-    toast.success("Rascunho restaurado!");
-  }, [restoreDraft]);
+    toast.success("Rascunho restaurado automaticamente");
+  }, [pendingDraft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const fetchContent = async () => {
@@ -415,12 +417,14 @@ const ContentPreview = () => {
         },
       });
       if (error) throw error;
-      if (isOverlayMode && data?.bgImageUrl) {
+      if (isOverlayMode && (data?.bgImageUrl || data?.imageUrl)) {
+        const bgUrl = data.bgImageUrl || data.imageUrl;
         const updatedSlides = [...slides];
         updatedSlides[index] = {
           ...updatedSlides[index],
-          background_image_url: data.bgImageUrl,
-          overlay: { headline: slide.headline, body: slide.body, bullets: slide.bullets },
+          image_url: bgUrl,
+          previewImage: bgUrl,
+          background_image_url: bgUrl,
           render_mode: "ai_bg_overlay" as const,
           image_stale: false,
         };
@@ -497,12 +501,14 @@ const ContentPreview = () => {
             },
           }).then(result => {
             completedCount++;
-            if (isOverlayMode && result.data?.bgImageUrl) {
+            if (isOverlayMode && (result.data?.bgImageUrl || result.data?.imageUrl)) {
+              const bgUrl = result.data.bgImageUrl || result.data.imageUrl;
               setSlides(prev => prev.map((sl, idx) =>
                 idx === i ? {
                   ...sl,
-                  background_image_url: result.data.bgImageUrl,
-                  overlay: { headline: sl.headline, body: sl.body, bullets: sl.bullets },
+                  image_url: bgUrl,
+                  previewImage: bgUrl,
+                  background_image_url: bgUrl,
                   render_mode: "ai_bg_overlay" as const,
                   image_stale: false,
                 } : sl
@@ -592,13 +598,7 @@ const ContentPreview = () => {
 
   return (
     <DashboardLayout>
-      {/* Draft Restore Modal */}
-      <DraftRestoreModal
-        open={!!pendingDraft}
-        savedAt={pendingDraft?.savedAt || 0}
-        onRestore={handleRestoreContentDraft}
-        onDiscard={discardDraft}
-      />
+      {/* Silent draft auto-restore */}
       <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -719,7 +719,7 @@ const ContentPreview = () => {
                           }}>
                             <SlideBgOverlayRenderer
                               backgroundImageUrl={currentSlideData.background_image_url!}
-                              overlay={currentSlideData.overlay || {
+                              overlay={{
                                 headline: currentSlideData.headline,
                                 body: currentSlideData.body,
                                 bullets: currentSlideData.bullets,

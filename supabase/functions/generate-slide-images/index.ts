@@ -46,9 +46,10 @@ serve(async (req) => {
     if (!slide) throw new Error("slide object is required");
 
     const language = requestLanguage || "pt-BR";
-    const isBgOnly = !!backgroundOnly;
+    // ALWAYS generate background-only — text is rendered by frontend overlay
+    const isBgOnly = true;
 
-    console.log(`[generate-slide-images] backgroundOnly=${isBgOnly}, slideIndex=${slideIndex}`);
+    console.log(`[generate-slide-images] BACKGROUND-ONLY mode (forced), slideIndex=${slideIndex}`);
 
     // ══════ STYLE GALLERY MODE ══════
     if (styleGalleryId) {
@@ -91,14 +92,8 @@ serve(async (req) => {
         contentParts.push({ type: "image_url", image_url: { url: imgUrl } });
       }
 
-      const prompt = isBgOnly
-        ? buildBackgroundOnlyPrompt(slide, slideIndex || 0, totalSlides || 1, null, contentFormat, null, null, galleryStyle.name, language)
-        : buildPrompt(
-            { ...slide, headline: sanitizeText(slide.headline || ""), body: sanitizeText(slide.body || ""), bullets: (slide.bullets || []).map((b: string) => sanitizeText(b)) },
-            slideIndex || 0, totalSlides || 1,
-            null, undefined, articleContent, contentFormat,
-            null, null, galleryStyle.name, language,
-          );
+      // Always background-only prompt
+      const prompt = buildBackgroundOnlyPrompt(slide, slideIndex || 0, totalSlides || 1, null, contentFormat, null, null, galleryStyle.name, language);
       contentParts.push({ type: "text", text: prompt });
 
       const result = await generateImage(LOVABLE_API_KEY, contentParts);
@@ -113,14 +108,14 @@ serve(async (req) => {
       const imageUrl = await uploadBase64ToStorage(supabaseAdmin, result, contentId || "draft", slideIndex || 0);
       return new Response(JSON.stringify({
         success: true,
-        imageUrl: isBgOnly ? null : imageUrl,
-        bgImageUrl: isBgOnly ? imageUrl : null,
+        imageUrl: imageUrl,
+        bgImageUrl: imageUrl,
         debug: {
           styleGalleryId, styleName: galleryStyle.name,
-          referencesUsedCount: selectedRefs.length, mode: "style_gallery",
+          referencesUsedCount: selectedRefs.length, mode: "background_only",
           image_model: "google/gemini-3-pro-image-preview",
           image_generation_ms: Date.now() - t0,
-          backgroundOnly: isBgOnly,
+          backgroundOnly: true,
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -238,14 +233,8 @@ serve(async (req) => {
       });
     }
 
-    const prompt = isBgOnly
-      ? buildBackgroundOnlyPrompt(slide, slideIndex || 0, totalSlides || 1, brandInfo, contentFormat, rules, visualSignature, templateSetName, language)
-      : buildPrompt(
-          { ...slide, headline: sanitizeText(slide.headline || ""), body: sanitizeText(slide.body || ""), bullets: (slide.bullets || []).map((b: string) => sanitizeText(b)) },
-          slideIndex || 0, totalSlides || 1,
-          brandInfo, undefined, articleContent, contentFormat,
-          rules, visualSignature, templateSetName, language,
-        );
+    // Always use background-only prompt
+    const prompt = buildBackgroundOnlyPrompt(slide, slideIndex || 0, totalSlides || 1, brandInfo, contentFormat, rules, visualSignature, templateSetName, language);
     contentParts.push({ type: "text", text: prompt });
 
     // ══════ GENERATE IMAGE ══════
@@ -261,12 +250,12 @@ serve(async (req) => {
     }
 
     const imageUrl = await uploadBase64ToStorage(supabaseAdmin, base64Image, contentId || "draft", slideIndex || 0);
-    console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} uploaded (bgOnly=${isBgOnly})`);
+    console.log(`[generate-slide-images] ✅ Slide ${(slideIndex || 0) + 1} background uploaded`);
 
     return new Response(JSON.stringify({
       success: true,
-      imageUrl: isBgOnly ? null : imageUrl,
-      bgImageUrl: isBgOnly ? imageUrl : null,
+      imageUrl: imageUrl,
+      bgImageUrl: imageUrl,
       debug: {
         templateSetId, templateSetName, categoryId: resolvedCategoryId,
         referencesUsedCount: referenceImageUrls.length, referenceExampleIds,
@@ -274,7 +263,7 @@ serve(async (req) => {
         image_model: "google/gemini-3-pro-image-preview",
         image_generation_ms: Date.now() - t0,
         generated_at: new Date().toISOString(),
-        backgroundOnly: isBgOnly,
+        backgroundOnly: true,
       },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
