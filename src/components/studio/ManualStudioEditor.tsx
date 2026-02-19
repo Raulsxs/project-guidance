@@ -68,6 +68,7 @@ interface SlideData {
   illustrationPrompt?: string;
   imagePrompt?: string;
   image_stale?: boolean;
+  overlay_positions?: Record<string, { x: number; y: number }>;
 }
 
 // ── Constants ──
@@ -984,6 +985,19 @@ export default function ManualStudioEditor() {
                       backgroundImageUrl={slide.background_image_url}
                       overlay={{ headline: slide.headline, body: slide.body, bullets: slide.bullets }}
                       overlayStyle={slide.overlay_style}
+                      overlayPositions={slide.overlay_positions}
+                      onPositionChange={(key, pos) => {
+                        const updated = [...slides];
+                        updated[currentSlide] = {
+                          ...updated[currentSlide],
+                          overlay_positions: {
+                            ...updated[currentSlide].overlay_positions,
+                            [key]: pos,
+                          },
+                        };
+                        setSlides(updated);
+                      }}
+                      editable={true}
                       dimensions={dims}
                       role={slide.role}
                       slideIndex={currentSlide}
